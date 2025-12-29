@@ -119,12 +119,15 @@ function App() {
     setLoaderMessage(messages[0]);
 
     try {
-      await invoke<string>('run_script', { scriptId: script.slug, code: script.code, language: script.language });
+      const output = await invoke<string>('run_script', { scriptId: script.slug, code: script.code, language: script.language });
       clearInterval(messageInterval);
       setLoaderProgress(100);
-      setLoaderMessage('Termine avec succes !');
+      // Show last meaningful line of output or success message
+      const lines = output.trim().split('\n').filter(l => l.trim());
+      const lastLine = lines.length > 0 ? lines[lines.length - 1] : 'Termine avec succes !';
+      setLoaderMessage(lastLine.replace(/\[[\w]+\]/g, '').trim() || 'Termine avec succes !');
       setTimeout(() => {
-        setActionResult({ success: true, message: `${script.name} termine !` });
+        setActionResult({ success: true, message: lastLine.length > 60 ? `${script.name} termine !` : lastLine });
         setRunningScript(null);
       }, 500);
       await invoke('send_notification', { title: 'Microdiag Sentinel', body: `${script.name} termine` });
@@ -146,8 +149,10 @@ function App() {
     } else {
       setActionRunning(slug);
       try {
-        await invoke<string>('run_script', { scriptId: slug, code: '', language: 'powershell' });
-        setActionResult({ success: true, message: `${name} termine !` });
+        const output = await invoke<string>('run_script', { scriptId: slug, code: '', language: 'powershell' });
+        const lines = output.trim().split('\n').filter(l => l.trim());
+        const lastLine = lines.length > 0 ? lines[lines.length - 1] : `${name} termine !`;
+        setActionResult({ success: true, message: lastLine.length > 60 ? `${name} termine !` : lastLine });
         fetchData();
       } catch (error) {
         setActionResult({ success: false, message: `Erreur: ${error}` });
@@ -243,7 +248,7 @@ function App() {
 
     try {
       const { open } = await import('@tauri-apps/api/shell');
-      await open(`https://github.com/microdiag/sentinel/releases/tag/v${updateAvailable.version}`);
+      await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest_setup.exe');
       clearInterval(progressInterval);
       setUpdateProgress(100);
       setTimeout(() => { setShowUpdateModal(false); setUpdateDownloading(false); }, 1500);

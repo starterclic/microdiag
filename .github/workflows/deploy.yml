@@ -25,6 +25,7 @@ jobs:
           latest: true
           fileName: '*.msi'
           out-file-path: 'release-assets'
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download release assets (EXE)
         uses: robinraju/release-downloader@v1
@@ -33,6 +34,7 @@ jobs:
           latest: true
           fileName: '*.exe'
           out-file-path: 'release-assets'
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download signature files
         uses: robinraju/release-downloader@v1
@@ -41,6 +43,7 @@ jobs:
           latest: true
           fileName: '*.sig'
           out-file-path: 'release-assets'
+          token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
       - name: Download latest.json (updater manifest)
@@ -50,6 +53,7 @@ jobs:
           latest: true
           fileName: 'latest.json'
           out-file-path: 'release-assets'
+          token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
       - name: List downloaded files

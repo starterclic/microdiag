@@ -96,8 +96,8 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $signature = "${{ steps.signature.outputs.SIGNATURE }}"
-          # Use the .nsis.zip URL for updater (Tauri expects this format)
-          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Microdiag.Sentinel_$($version)_x64-setup.nsis.zip"
+          # Point to server URL (works even if GitHub repo is private)
+          $downloadUrl = "https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest_setup.exe"
 
           $body = @{
             version = $version
