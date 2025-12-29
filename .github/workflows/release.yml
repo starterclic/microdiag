@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
 jobs:
   build-and-release:
     runs-on: windows-latest
@@ -33,19 +37,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app
+      - name: Build Tauri app with updater
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Microdiag Sentinel ${{ github.ref_name }}'
           releaseBody: |
             ## Microdiag Sentinel ${{ github.ref_name }}
 
-            ### Téléchargements
+            ### Telechargements
             - **MSI Installer** - Installation standard Windows
-            - **EXE Installer** - Installation NSIS avec options avancées
+            - **EXE Installer** - Installation NSIS avec options avancees
+
+            ### Auto-Update
+            Les utilisateurs existants recevront automatiquement cette mise a jour.
 
             ### Changements
             Voir le [CHANGELOG](https://github.com/starterclic/microdiag/blob/main/CHANGELOG.md)
@@ -54,3 +63,58 @@ jobs:
             Build automatique via GitHub Actions
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
+
+      - name: Get version from tag
+        id: version
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Read signature file
+        id: signature
+        run: |
+          $sigFile = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($sigFile) {
+            $sig = Get-Content $sigFile.FullName -Raw
+            echo "SIGNATURE=$sig" >> $env:GITHUB_OUTPUT
+            echo "Found signature: $($sigFile.Name)"
+          } else {
+            echo "SIGNATURE=" >> $env:GITHUB_OUTPUT
+            echo "No signature file found"
+          }
+        shell: pwsh
+
+      - name: Update version in database
+        if: ${{ steps.signature.outputs.SIGNATURE != '' }}
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $signature = "${{ steps.signature.outputs.SIGNATURE }}"
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Microdiag.Sentinel_${version}_x64-setup.exe"
+
+          $body = @{
+            version = $version
+            signature = $signature
+            download_url = $downloadUrl
+            platform = "windows"
+            release_notes = "Release ${{ github.ref_name }}"
+            is_mandatory = $false
+            published_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          } | ConvertTo-Json
+
+          $headers = @{
+            "apikey" = "${{ secrets.SUPABASE_SERVICE_KEY }}"
+            "Authorization" = "Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}"
+            "Content-Type" = "application/json"
+            "Prefer" = "resolution=merge-duplicates"
+          }
+
+          # Upsert version in database
+          Invoke-RestMethod -Uri "https://api.microdiag.cybtek.fr/rest/v1/app_versions" `
+            -Method POST `
+            -Headers $headers `
+            -Body $body
+
+          echo "Updated database with version $version"
+        shell: pwsh

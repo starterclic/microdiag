@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to deploy (e.g., v2.1.1)'
+        description: 'Version to deploy (e.g., v2.2.0)'
         required: true
         default: 'latest'
 
@@ -18,7 +18,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
-      - name: Download release assets
+      - name: Download release assets (MSI)
         uses: robinraju/release-downloader@v1
         with:
           repository: ${{ github.repository }}
@@ -26,13 +26,31 @@ jobs:
           fileName: '*.msi'
           out-file-path: 'release-assets'
 
-      - name: Download EXE
+      - name: Download release assets (EXE)
         uses: robinraju/release-downloader@v1
         with:
           repository: ${{ github.repository }}
           latest: true
           fileName: '*.exe'
           out-file-path: 'release-assets'
+
+      - name: Download signature files
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: ${{ github.repository }}
+          latest: true
+          fileName: '*.sig'
+          out-file-path: 'release-assets'
+        continue-on-error: true
+
+      - name: Download latest.json (updater manifest)
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: ${{ github.repository }}
+          latest: true
+          fileName: 'latest.json'
+          out-file-path: 'release-assets'
+        continue-on-error: true
 
       - name: List downloaded files
         run: ls -la release-assets/
@@ -52,16 +70,35 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key release-assets/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/Microdiag/app/downloads/
 
-      - name: Create symlinks
+      - name: Create symlinks and copy to public
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+          # Admin downloads
           cd /opt/Microdiag/admin/downloads
-          ln -sf $(ls -t *.msi 2>/dev/null | head -1) MicrodiagSentinel_latest.msi || true
-          ln -sf $(ls -t *setup*.exe 2>/dev/null | head -1) MicrodiagSentinel_latest_setup.exe || true
+          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
+          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+
+          # App downloads
           cd /opt/Microdiag/app/downloads
-          ln -sf $(ls -t *.msi 2>/dev/null | head -1) MicrodiagSentinel_latest.msi || true
-          ln -sf $(ls -t *setup*.exe 2>/dev/null | head -1) MicrodiagSentinel_latest_setup.exe || true
-          echo "Deploy complete!"
+          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
+          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+
+          # Public site downloads (for direct access)
+          mkdir -p /srv/microdiag/public/downloads
+          cp /opt/Microdiag/app/downloads/*.msi /srv/microdiag/public/downloads/ 2>/dev/null || true
+          cp /opt/Microdiag/app/downloads/*.exe /srv/microdiag/public/downloads/ 2>/dev/null || true
+          cp /opt/Microdiag/app/downloads/*.sig /srv/microdiag/public/downloads/ 2>/dev/null || true
+          cp /opt/Microdiag/app/downloads/latest.json /srv/microdiag/public/downloads/ 2>/dev/null || true
+
+          cd /srv/microdiag/public/downloads
+          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
+          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+
+          echo "Deploy complete! Files deployed to:"
+          echo "  - /opt/Microdiag/admin/downloads/"
+          echo "  - /opt/Microdiag/app/downloads/"
+          echo "  - /srv/microdiag/public/downloads/"
+          ls -la /srv/microdiag/public/downloads/
           ENDSSH
 
       - name: Cleanup
