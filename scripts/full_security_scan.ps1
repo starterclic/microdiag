@@ -1,361 +1,278 @@
-# MICRODIAG SENTINEL - Full Security Scan v2.0
+# ============================================
+# MICRODIAG SENTINEL - Full Security Scan
+# Analyse complete du systeme
+# ============================================
+
 $ErrorActionPreference = "SilentlyContinue"
 
-function Clean-String {
-    param([string]$text, [int]$maxLen = 150)
-    if ([string]::IsNullOrEmpty($text)) { return "" }
-    $text = $text -replace '[^\x20-\x7E]', ''
-    $text = $text -replace '["\\/]', ' '
-    $text = $text -replace '[\r\n\t]', ' '
-    $text = $text -replace '\s+', ' '
-    $text = $text.Trim()
-    if ($text.Length -gt $maxLen) { $text = $text.Substring(0, $maxLen) }
-    return $text
+$report = @{
+    timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    hostname = $env:COMPUTERNAME
+    sections = @()
 }
 
-$sections = @()
+function Add-Section {
+    param($title, $icon, $status, $items)
+    $script:report.sections += @{
+        title = $title
+        icon = $icon
+        status = $status
+        items = $items
+    }
+}
 
-# 1. LOGS WINDOWS
-Write-Host "[1/10] Analyse logs systeme..."
+# ============================================
+# 1. ANALYSE DES LOGS WINDOWS (Erreurs recentes)
+# ============================================
+Write-Host "[1/8] Analyse des logs systeme..."
 $logItems = @()
-try {
-    $errorLogs = @(Get-WinEvent -FilterHashtable @{LogName='System';Level=2;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 50 2>$null)
-    $warningLogs = @(Get-WinEvent -FilterHashtable @{LogName='System';Level=3;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 30 2>$null)
-    $appErrors = @(Get-WinEvent -FilterHashtable @{LogName='Application';Level=2;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 20 2>$null)
-} catch {
-    $errorLogs = @(); $warningLogs = @(); $appErrors = @()
-}
-$criticalCount = $errorLogs.Count
-$warningCount = $warningLogs.Count
-$appErrorCount = $appErrors.Count
+$errorLogs = Get-WinEvent -FilterHashtable @{LogName='System';Level=2;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 20 2>$null
+$warningLogs = Get-WinEvent -FilterHashtable @{LogName='System';Level=3;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 10 2>$null
 
-foreach ($log in $errorLogs | Select-Object -First 5) {
-    if ($log) {
+$criticalCount = ($errorLogs | Measure-Object).Count
+$warningCount = ($warningLogs | Measure-Object).Count
+
+if ($criticalCount -gt 0) {
+    foreach ($log in $errorLogs | Select-Object -First 5) {
         $logItems += @{
             type = "error"
-            message = (Clean-String $log.Message)
+            message = $log.Message.Substring(0, [Math]::Min(150, $log.Message.Length)) + "..."
             date = $log.TimeCreated.ToString("dd/MM HH:mm")
-            source = (Clean-String $log.ProviderName)
+            source = $log.ProviderName
         }
     }
 }
 
-$logStatus = if ($criticalCount -gt 20) { "critical" } elseif ($criticalCount -gt 5) { "warning" } else { "ok" }
-$logExplain = if ($criticalCount -gt 20) { "Nombre eleve d erreurs systeme detectees. Cela peut indiquer un probleme materiel ou logiciel necessitant une attention." } elseif ($criticalCount -gt 5) { "Quelques erreurs detectees dans les logs. Surveillance recommandee." } else { "Les logs systeme sont sains. Aucune anomalie majeure detectee." }
-$logAction = if ($criticalCount -gt 20) { "Nous recommandons un diagnostic approfondi par un technicien." } elseif ($criticalCount -gt 5) { "Continuez a surveiller. Contactez-nous si les problemes persistent." } else { "" }
-
-$sections += @{
-    title = "Journaux Systeme Windows"
-    icon = "logs"
-    status = $logStatus
-    explanation = $logExplain
-    action = $logAction
-    items = @{
-        summary = "$criticalCount erreurs systeme, $warningCount avertissements"
-        details = $logItems
-    }
+$logStatus = if ($criticalCount -gt 10) { "critical" } elseif ($criticalCount -gt 0) { "warning" } else { "ok" }
+Add-Section -title "Logs Systeme (7 derniers jours)" -icon "📋" -status $logStatus -items @{
+    summary = "$criticalCount erreurs, $warningCount avertissements"
+    details = $logItems
 }
 
-# 2. BSOD
-Write-Host "[2/10] Recherche ecrans bleus..."
+# ============================================
+# 2. ECRANS BLEUS (BSOD Analysis)
+# ============================================
+Write-Host "[2/8] Recherche d'ecrans bleus..."
 $bsodItems = @()
-$bsodCount = 0
 $minidumpPath = "$env:SystemRoot\Minidump"
+$bsodCount = 0
+
 if (Test-Path $minidumpPath) {
-    $dumps = @(Get-ChildItem $minidumpPath -Filter "*.dmp" 2>$null | Sort-Object LastWriteTime -Descending | Select-Object -First 10)
-    $bsodCount = $dumps.Count
-    foreach ($d in $dumps) {
-        $bsodItems += @{ date = $d.LastWriteTime.ToString("dd/MM/yyyy HH:mm"); file = $d.Name }
+    $dumps = Get-ChildItem $minidumpPath -Filter "*.dmp" | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+    $bsodCount = ($dumps | Measure-Object).Count
+    foreach ($dump in $dumps) {
+        $bsodItems += @{
+            type = "crash"
+            date = $dump.LastWriteTime.ToString("dd/MM/yyyy HH:mm")
+            file = $dump.Name
+        }
     }
 }
 
-$bsodStatus = if ($bsodCount -gt 3) { "critical" } elseif ($bsodCount -gt 0) { "warning" } else { "ok" }
-$bsodExplain = if ($bsodCount -gt 3) { "Plusieurs ecrans bleus detectes. Problemes de stabilite serieux pouvant etre lies au materiel ou pilotes." } elseif ($bsodCount -gt 0) { "Des ecrans bleus ont ete detectes. Merite attention." } else { "Excellent ! Aucun ecran bleu detecte. Systeme stable." }
-$bsodAction = if ($bsodCount -gt 3) { "Intervention recommandee pour analyser les crashs." } elseif ($bsodCount -gt 0) { "Surveillez la situation." } else { "" }
-
-$sections += @{
-    title = "Stabilite Systeme (BSOD)"
-    icon = "bsod"
-    status = $bsodStatus
-    explanation = $bsodExplain
-    action = $bsodAction
-    items = @{ summary = if ($bsodCount -eq 0) { "Aucun ecran bleu - Systeme stable" } else { "$bsodCount crash(s) detecte(s)" }; details = $bsodItems }
-}
-
-# 3. ANTIVIRUS
-Write-Host "[3/10] Verification antivirus..."
-$avEnabled = $false
-$rtProtection = $false
-$fwEnabled = $false
-
-try {
-    $defender = Get-MpComputerStatus 2>$null
-    if ($defender) {
-        $avEnabled = $defender.AntivirusEnabled
-        $rtProtection = $defender.RealTimeProtectionEnabled
+# Check BlueScreen events in Event Log
+$bsodEvents = Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-WER-SystemErrorReporting'} -MaxEvents 5 2>$null
+foreach ($evt in $bsodEvents) {
+    $bsodItems += @{
+        type = "bsod_event"
+        date = $evt.TimeCreated.ToString("dd/MM/yyyy HH:mm")
+        message = "Crash systeme detecte"
     }
-} catch {}
-
-try {
-    $fw = Get-NetFirewallProfile -Profile Domain,Public,Private 2>$null
-    $fwEnabled = ($fw | Where-Object { $_.Enabled -eq $true }).Count -gt 0
-} catch {}
-
-$avDetails = @()
-$avDetails += @{ name = "Antivirus actif"; value = if ($avEnabled) { "Oui" } else { "Non" }; status = if ($avEnabled) { "ok" } else { "critical" } }
-$avDetails += @{ name = "Protection temps reel"; value = if ($rtProtection) { "Activee" } else { "Desactivee" }; status = if ($rtProtection) { "ok" } else { "critical" } }
-$avDetails += @{ name = "Pare-feu Windows"; value = if ($fwEnabled) { "Actif" } else { "Inactif" }; status = if ($fwEnabled) { "ok" } else { "warning" } }
-
-$securityScore = 0
-if ($avEnabled) { $securityScore += 40 }
-if ($rtProtection) { $securityScore += 40 }
-if ($fwEnabled) { $securityScore += 20 }
-
-$avStatus = if ($securityScore -lt 50) { "critical" } elseif ($securityScore -lt 80) { "warning" } else { "ok" }
-$avExplain = if ($securityScore -ge 80) { "Protection antivirus optimale. Windows Defender protege activement votre PC." } elseif ($securityScore -ge 50) { "Certaines protections desactivees. PC partiellement protege." } else { "ALERTE: Protections insuffisantes. PC vulnerable." }
-$avAction = if ($securityScore -lt 80) { "Activez toutes les protections Windows immediatement." } else { "" }
-
-$sections += @{
-    title = "Protection Antivirus"
-    icon = "shield"
-    status = $avStatus
-    explanation = $avExplain
-    action = $avAction
-    items = @{ summary = "Score securite: $securityScore%"; details = $avDetails; score = $securityScore }
 }
 
-# 4. APPLICATIONS RISQUE
-Write-Host "[4/10] Analyse applications..."
-$riskyAppsList = @("TeamViewer", "AnyDesk", "UltraViewer", "LogMeIn", "uTorrent", "BitTorrent", "qBittorrent", "CCleaner", "IObit")
-$apps = @(Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" 2>$null | Where-Object { $_.DisplayName })
-$totalApps = $apps.Count
+$bsodStatus = if ($bsodCount -gt 2) { "critical" } elseif ($bsodCount -gt 0) { "warning" } else { "ok" }
+Add-Section -title "Ecrans Bleus (BSOD)" -icon "💀" -status $bsodStatus -items @{
+    summary = if ($bsodCount -eq 0) { "Aucun ecran bleu detecte" } else { "$bsodCount crash(s) detecte(s)" }
+    details = $bsodItems
+}
+
+# ============================================
+# 3. APPLICATIONS INSTALLEES (Risques)
+# ============================================
+Write-Host "[3/8] Analyse des applications installees..."
+$appItems = @()
+$riskyApps = @("TeamViewer", "AnyDesk", "UltraViewer", "LogMeIn", "uTorrent", "BitTorrent", "qBittorrent", "CCleaner", "IObit", "Avast", "AVG", "360 Total Security", "Baidu", "WinRAR", "7-Zip")
+$installedApps = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" 2>$null |
+    Where-Object { $_.DisplayName } |
+    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
 
 $riskyFound = @()
-foreach ($app in $apps) {
-    foreach ($r in $riskyAppsList) {
-        if ($app.DisplayName -like "*$r*") {
-            $riskyFound += @{ name = (Clean-String $app.DisplayName 50); version = (Clean-String $app.DisplayVersion 20) }
+foreach ($app in $installedApps) {
+    foreach ($risky in $riskyApps) {
+        if ($app.DisplayName -like "*$risky*") {
+            $riskyFound += @{
+                name = $app.DisplayName
+                version = $app.DisplayVersion
+                risk = "Surface d'attaque augmentee"
+            }
         }
     }
 }
 
 $appStatus = if ($riskyFound.Count -gt 3) { "warning" } else { "ok" }
-$appExplain = if ($riskyFound.Count -gt 0) { "Certaines applications presentent des risques. Souvent exploitees par des pirates." } else { "Aucune application a risque majeur detectee." }
-$appAction = if ($riskyFound.Count -gt 0) { "Evaluez si ces applications sont necessaires." } else { "" }
-
-$sections += @{
-    title = "Applications a Risque"
-    icon = "apps"
-    status = $appStatus
-    explanation = $appExplain
-    action = $appAction
-    items = @{ summary = "$($riskyFound.Count) app(s) risque sur $totalApps"; details = $riskyFound; total = $totalApps }
+Add-Section -title "Applications a Risque" -icon "📦" -status $appStatus -items @{
+    summary = "$($riskyFound.Count) application(s) augmentant la surface de vulnerabilite"
+    total_apps = $installedApps.Count
+    details = $riskyFound
 }
 
-# 5. RDP
-Write-Host "[5/10] Verification RDP..."
-$rdpEnabled = $false
-try {
-    $rdpReg = Get-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" 2>$null
-    if ($rdpReg) { $rdpEnabled = $rdpReg.fDenyTSConnections -eq 0 }
-} catch {}
+# ============================================
+# 4. RDP ACTIF
+# ============================================
+Write-Host "[4/8] Verification RDP..."
+$rdpEnabled = (Get-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -ErrorAction SilentlyContinue).fDenyTSConnections -eq 0
+$rdpPort = (Get-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "PortNumber" -ErrorAction SilentlyContinue).PortNumber
 
-$rdpStatus = if ($rdpEnabled) { "warning" } else { "ok" }
-$rdpExplain = if ($rdpEnabled) { "Bureau a distance actif. Cible frequente des ransomwares." } else { "Bureau a distance desactive. Configuration securisee." }
-$rdpAction = if ($rdpEnabled) { "Desactivez RDP si non necessaire." } else { "" }
-
-$sections += @{
-    title = "Bureau a Distance (RDP)"
-    icon = "rdp"
-    status = $rdpStatus
-    explanation = $rdpExplain
-    action = $rdpAction
-    items = @{ summary = if ($rdpEnabled) { "RDP actif - Attention" } else { "RDP desactive - OK" }; details = @(); enabled = $rdpEnabled }
+$rdpSessions = @()
+$sessions = qwinsta 2>$null | Select-Object -Skip 1
+foreach ($session in $sessions) {
+    if ($session -match "rdp" -or $session -match "Active") {
+        $rdpSessions += $session.Trim()
+    }
 }
 
-# 6. PORTS RESEAU
-Write-Host "[6/10] Scan ports reseau..."
+$rdpStatus = if ($rdpEnabled -and $rdpSessions.Count -gt 0) { "warning" } elseif ($rdpEnabled) { "info" } else { "ok" }
+Add-Section -title "Bureau a Distance (RDP)" -icon "🖥️" -status $rdpStatus -items @{
+    enabled = $rdpEnabled
+    port = $rdpPort
+    summary = if ($rdpEnabled) { "RDP actif sur port $rdpPort" } else { "RDP desactive" }
+    active_sessions = $rdpSessions.Count
+    details = $rdpSessions
+}
+
+# ============================================
+# 5. PORTS RESEAU OUVERTS
+# ============================================
+Write-Host "[5/8] Scan des ports reseau..."
 $openPorts = @()
-$riskyPortsMap = @{ 21="FTP"; 22="SSH"; 23="Telnet"; 135="RPC"; 139="NetBIOS"; 445="SMB"; 1433="SQL"; 3306="MySQL"; 3389="RDP"; 5900="VNC" }
-$conns = @(Get-NetTCPConnection -State Listen 2>$null | Select-Object LocalPort, OwningProcess -Unique | Select-Object -First 30)
-foreach ($c in $conns) {
-    $pname = ""
-    try { $pname = (Get-Process -Id $c.OwningProcess 2>$null).ProcessName } catch {}
-    $isRisky = $riskyPortsMap.ContainsKey($c.LocalPort)
-    $desc = if ($isRisky) { $riskyPortsMap[$c.LocalPort] } else { "" }
-    $openPorts += @{ port = $c.LocalPort; process = (Clean-String $pname 30); risky = $isRisky; desc = $desc }
-}
-$riskyCount = @($openPorts | Where-Object { $_.risky }).Count
-$portStatus = if ($riskyCount -gt 3) { "critical" } elseif ($riskyCount -gt 0) { "warning" } else { "ok" }
-$portExplain = if ($riskyCount -gt 3) { "Plusieurs ports sensibles ouverts. Cibles frequentes des attaquants." } elseif ($riskyCount -gt 0) { "Certains ports risques ouverts." } else { "Configuration reseau saine." }
-$portAction = if ($riskyCount -gt 0) { "Fermez les ports inutiles via le pare-feu." } else { "" }
+$riskyPorts = @(21, 22, 23, 25, 135, 139, 445, 1433, 3306, 3389, 5900, 5985, 5986)
+$connections = Get-NetTCPConnection -State Listen 2>$null | Select-Object LocalPort, OwningProcess -Unique
 
-$sections += @{
-    title = "Ports Reseau"
-    icon = "network"
-    status = $portStatus
-    explanation = $portExplain
-    action = $portAction
-    items = @{ summary = "$($openPorts.Count) ports, $riskyCount sensible(s)"; details = @($openPorts | Where-Object { $_.risky }); total = $openPorts.Count }
+foreach ($conn in $connections) {
+    $processName = (Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue).ProcessName
+    $isRisky = $conn.LocalPort -in $riskyPorts
+    $openPorts += @{
+        port = $conn.LocalPort
+        process = $processName
+        risky = $isRisky
+    }
 }
 
-# 7. EXTENSIONS CHROME
-Write-Host "[7/10] Analyse extensions..."
-$chromeExt = @()
-$suspCount = 0
+$riskyOpenCount = ($openPorts | Where-Object { $_.risky }).Count
+$portStatus = if ($riskyOpenCount -gt 3) { "critical" } elseif ($riskyOpenCount -gt 0) { "warning" } else { "ok" }
+Add-Section -title "Ports Reseau Ouverts" -icon "🔌" -status $portStatus -items @{
+    summary = "$($openPorts.Count) port(s) en ecoute, $riskyOpenCount potentiellement risque(s)"
+    details = $openPorts | Sort-Object { $_.risky } -Descending | Select-Object -First 15
+}
+
+# ============================================
+# 6. EXTENSIONS CHROME SUSPECTES
+# ============================================
+Write-Host "[6/8] Analyse extensions Chrome..."
+$chromeExtensions = @()
 $chromePath = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Extensions"
+
 if (Test-Path $chromePath) {
-    $exts = @(Get-ChildItem $chromePath -Directory 2>$null | Select-Object -First 20)
-    foreach ($e in $exts) {
-        $mf = Get-ChildItem $e.FullName -Recurse -Filter "manifest.json" 2>$null | Select-Object -First 1
-        if ($mf) {
+    $extensions = Get-ChildItem $chromePath -Directory
+    foreach ($ext in $extensions) {
+        $manifestPath = Get-ChildItem $ext.FullName -Recurse -Filter "manifest.json" | Select-Object -First 1
+        if ($manifestPath) {
             try {
-                $m = Get-Content $mf.FullName -Raw 2>$null | ConvertFrom-Json
-                $perms = if ($m.permissions) { $m.permissions -join "," } else { "" }
-                $isSuspicious = $perms -match "tabs|webRequest|cookies|<all_urls>|clipboardRead|history"
-                if ($m.name -notmatch "^__MSG" -and $m.name) {
-                    if ($isSuspicious) { $suspCount++ }
-                    $chromeExt += @{ name = (Clean-String $m.name 60); suspicious = $isSuspicious }
+                $manifest = Get-Content $manifestPath.FullName -Raw | ConvertFrom-Json
+                $permissions = $manifest.permissions -join ", "
+                $isSuspicious = $permissions -match "tabs|webRequest|cookies|history|<all_urls>|http://\*|https://\*"
+                $chromeExtensions += @{
+                    name = $manifest.name
+                    version = $manifest.version
+                    permissions = $permissions.Substring(0, [Math]::Min(100, $permissions.Length))
+                    suspicious = $isSuspicious
                 }
             } catch {}
         }
     }
 }
 
-$chromeStatus = if ($suspCount -gt 5) { "warning" } elseif ($suspCount -gt 2) { "info" } else { "ok" }
-$chromeExplain = if ($suspCount -gt 5) { "Plusieurs extensions avec permissions etendues. Peuvent voir vos donnees sensibles." } elseif ($suspCount -gt 0) { "Certaines extensions ont des permissions sensibles." } else { "Extensions sous controle." }
-$chromeAction = if ($suspCount -gt 2) { "Supprimez les extensions inutiles ou inconnues." } else { "" }
-
-$sections += @{
-    title = "Extensions Chrome"
-    icon = "browser"
-    status = $chromeStatus
-    explanation = $chromeExplain
-    action = $chromeAction
-    items = @{ summary = "$($chromeExt.Count) extensions, $suspCount sensibles"; details = @($chromeExt | Where-Object { $_.suspicious }) }
+$suspiciousCount = ($chromeExtensions | Where-Object { $_.suspicious }).Count
+$chromeStatus = if ($suspiciousCount -gt 2) { "warning" } else { "ok" }
+Add-Section -title "Extensions Chrome" -icon "🧩" -status $chromeStatus -items @{
+    summary = "$($chromeExtensions.Count) extension(s), $suspiciousCount avec permissions etendues"
+    details = $chromeExtensions | Where-Object { $_.suspicious } | Select-Object -First 10
 }
 
-# 8. PROGRAMMES DEMARRAGE
-Write-Host "[8/10] Analyse demarrage..."
-$startItems = @()
-$paths = @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run")
-foreach ($p in $paths) {
-    try {
-        $items = Get-ItemProperty $p 2>$null
-        if ($items) {
-            $items.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
-                $startItems += @{ name = (Clean-String $_.Name 40); command = (Clean-String $_.Value 80) }
+# ============================================
+# 7. PROGRAMMES AU DEMARRAGE
+# ============================================
+Write-Host "[7/8] Analyse du demarrage..."
+$startupItems = @()
+$startupPaths = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
+)
+
+foreach ($path in $startupPaths) {
+    $items = Get-ItemProperty $path 2>$null
+    if ($items) {
+        $items.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
+            $startupItems += @{
+                name = $_.Name
+                command = $_.Value.Substring(0, [Math]::Min(80, $_.Value.Length))
+                location = $path.Split("\")[-1]
             }
         }
-    } catch {}
-}
-$startCount = $startItems.Count
-$startStatus = if ($startCount -gt 20) { "warning" } elseif ($startCount -gt 12) { "info" } else { "ok" }
-$startExplain = if ($startCount -gt 20) { "Trop de programmes au demarrage. Ralentit votre PC." } elseif ($startCount -gt 12) { "Nombre modere. Optimisation possible." } else { "Demarrage optimise." }
-$startAction = if ($startCount -gt 12) { "Desactivez les programmes inutiles via Gestionnaire des taches." } else { "" }
-
-$sections += @{
-    title = "Programmes Demarrage"
-    icon = "startup"
-    status = $startStatus
-    explanation = $startExplain
-    action = $startAction
-    items = @{ summary = "$startCount programmes"; details = @($startItems | Select-Object -First 10); total = $startCount }
-}
-
-# 9. ESPACE DISQUE
-Write-Host "[9/10] Verification espace disque..."
-$diskItems = @()
-$diskWarning = $false
-$diskCritical = $false
-
-$disks = Get-WmiObject Win32_LogicalDisk -Filter "DriveType=3" 2>$null
-foreach ($disk in $disks) {
-    $freeGB = [math]::Round($disk.FreeSpace / 1GB, 1)
-    $totalGB = [math]::Round($disk.Size / 1GB, 1)
-    $usedPercent = [math]::Round((($disk.Size - $disk.FreeSpace) / $disk.Size) * 100, 0)
-    $status = "ok"
-    if ($usedPercent -gt 95) { $status = "critical"; $diskCritical = $true }
-    elseif ($usedPercent -gt 85) { $status = "warning"; $diskWarning = $true }
-    $diskItems += @{ drive = $disk.DeviceID; freeGB = $freeGB; totalGB = $totalGB; usedPercent = $usedPercent; status = $status }
-}
-
-$diskStatus = if ($diskCritical) { "critical" } elseif ($diskWarning) { "warning" } else { "ok" }
-$diskExplain = if ($diskCritical) { "ALERTE: Espace disque critique. PC peut devenir instable." } elseif ($diskWarning) { "Espace limite. Pensez a faire du menage." } else { "Espace disque suffisant." }
-$diskAction = if ($diskCritical -or $diskWarning) { "Liberez de l espace: supprimez fichiers inutiles, videz corbeille." } else { "" }
-
-$sections += @{
-    title = "Espace Disque"
-    icon = "disk"
-    status = $diskStatus
-    explanation = $diskExplain
-    action = $diskAction
-    items = @{ summary = "Analyse de $($diskItems.Count) lecteur(s)"; details = $diskItems }
-}
-
-# 10. MISES A JOUR
-Write-Host "[10/10] Verification mises a jour..."
-$days = 0
-$lastUpdateDate = "Inconnue"
-try {
-    $last = (Get-HotFix 2>$null | Sort-Object InstalledOn -Descending | Select-Object -First 1)
-    if ($last -and $last.InstalledOn) {
-        $days = ((Get-Date) - $last.InstalledOn).Days
-        $lastUpdateDate = $last.InstalledOn.ToString("dd/MM/yyyy")
     }
-} catch { $days = 999 }
-
-$upStatus = if ($days -gt 60) { "critical" } elseif ($days -gt 30) { "warning" } else { "ok" }
-$upExplain = if ($days -gt 60) { "ALERTE: PC non mis a jour depuis 2 mois. Vulnerable aux failles recentes." } elseif ($days -gt 30) { "Mises a jour en retard. Correctifs importants manquants." } else { "Mises a jour a jour. Derniers correctifs installes." }
-$upAction = if ($days -gt 30) { "Lancez Windows Update immediatement." } else { "" }
-
-$sections += @{
-    title = "Mises a Jour Windows"
-    icon = "update"
-    status = $upStatus
-    explanation = $upExplain
-    action = $upAction
-    items = @{ summary = "Derniere MAJ: $lastUpdateDate ($days jours)"; details = @(); days = $days; lastDate = $lastUpdateDate }
 }
 
+$startupCount = $startupItems.Count
+$startupStatus = if ($startupCount -gt 15) { "warning" } elseif ($startupCount -gt 10) { "info" } else { "ok" }
+Add-Section -title "Programmes au Demarrage" -icon "🚀" -status $startupStatus -items @{
+    summary = "$startupCount programme(s) au demarrage"
+    details = $startupItems | Select-Object -First 15
+}
+
+# ============================================
+# 8. MISES A JOUR WINDOWS
+# ============================================
+Write-Host "[8/8] Verification des mises a jour..."
+$updateSession = New-Object -ComObject Microsoft.Update.Session
+$updateSearcher = $updateSession.CreateUpdateSearcher()
+try {
+    $pendingUpdates = $updateSearcher.Search("IsInstalled=0 and Type='Software'").Updates
+    $pendingCount = $pendingUpdates.Count
+    $criticalUpdates = ($pendingUpdates | Where-Object { $_.MsrcSeverity -eq "Critical" }).Count
+} catch {
+    $pendingCount = -1
+    $criticalUpdates = 0
+}
+
+$lastUpdate = (Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn
+$daysSinceUpdate = if ($lastUpdate) { ((Get-Date) - $lastUpdate).Days } else { 999 }
+
+$updateStatus = if ($criticalUpdates -gt 0 -or $daysSinceUpdate -gt 30) { "critical" } elseif ($pendingCount -gt 5) { "warning" } else { "ok" }
+Add-Section -title "Mises a Jour Windows" -icon "🔄" -status $updateStatus -items @{
+    summary = if ($pendingCount -ge 0) { "$pendingCount mise(s) a jour en attente" } else { "Impossible de verifier" }
+    critical = $criticalUpdates
+    last_update = if ($lastUpdate) { $lastUpdate.ToString("dd/MM/yyyy") } else { "Inconnue" }
+    days_since = $daysSinceUpdate
+}
+
+# ============================================
 # SCORE GLOBAL
-$crit = @($sections | Where-Object { $_.status -eq "critical" }).Count
-$warn = @($sections | Where-Object { $_.status -eq "warning" }).Count
-$info = @($sections | Where-Object { $_.status -eq "info" }).Count
-$okc = @($sections | Where-Object { $_.status -eq "ok" }).Count
+# ============================================
+$criticalSections = ($report.sections | Where-Object { $_.status -eq "critical" }).Count
+$warningSections = ($report.sections | Where-Object { $_.status -eq "warning" }).Count
 
-$score = 100 - ($crit * 15) - ($warn * 8) - ($info * 3)
-if ($score -lt 0) { $score = 0 }
+$globalScore = 100
+$globalScore -= ($criticalSections * 20)
+$globalScore -= ($warningSections * 10)
+$globalScore = [Math]::Max(0, $globalScore)
 
-$globalStatus = "ok"
-$globalMessage = "Votre PC est en bonne sante"
-$globalAdvice = "Continuez les bonnes pratiques de securite"
-
-if ($score -lt 40) {
-    $globalStatus = "critical"
-    $globalMessage = "Votre PC necessite une attention immediate"
-    $globalAdvice = "Contactez un technicien Microdiag pour une intervention rapide"
-} elseif ($score -lt 70) {
-    $globalStatus = "warning"
-    $globalMessage = "Votre PC presente des points d attention"
-    $globalAdvice = "Suivez les recommandations ou contactez-nous pour un diagnostic"
+$report.score = $globalScore
+$report.status = if ($globalScore -lt 50) { "critical" } elseif ($globalScore -lt 75) { "warning" } else { "ok" }
+$report.summary = @{
+    critical = $criticalSections
+    warning = $warningSections
+    ok = ($report.sections | Where-Object { $_.status -eq "ok" }).Count
 }
 
-# Infos systeme
-$osInfo = ""
-try { $osInfo = (Get-WmiObject Win32_OperatingSystem).Caption -replace '[^\x20-\x7E]', '' } catch {}
-
-$report = @{
-    timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-    hostname = $env:COMPUTERNAME
-    username = $env:USERNAME
-    osVersion = $osInfo
-    score = $score
-    status = $globalStatus
-    message = $globalMessage
-    advice = $globalAdvice
-    summary = @{ critical = $crit; warning = $warn; info = $info; ok = $okc; total = $sections.Count }
-    sections = $sections
-}
-
+# Output JSON
 $report | ConvertTo-Json -Depth 10 -Compress

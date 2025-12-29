@@ -59,7 +59,7 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": ["../../scripts/*"],
+      "resources": ["../scripts/*"],
       "shortDescription": "Microdiag Sentinel Agent",
       "targets": "all",
       "windows": {
