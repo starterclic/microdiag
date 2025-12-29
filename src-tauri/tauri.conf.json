@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "Microdiag Sentinel",
-    "version": "2.2.6"
+    "version": "2.2.7"
   },
   "tauri": {
     "allowlist": {
@@ -97,10 +97,11 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 700,
+        "maximized": true,
+        "height": 800,
         "minHeight": 600,
-        "width": 1000,
-        "minWidth": 800,
+        "width": 1200,
+        "minWidth": 900,
         "resizable": true,
         "title": "Microdiag Sentinel",
         "center": true,

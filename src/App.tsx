@@ -10,7 +10,7 @@ import './styles/index.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport } from './types';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES } from './constants';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY_TIPS, STARTUP_STEPS } from './constants';
 
 // Components
 import { Sidebar, ScriptLoaderModal, UpdateModal } from './components';
@@ -29,6 +29,8 @@ function App() {
   const [security, setSecurity] = useState<SecurityStatus | null>(null);
   const [deviceToken, setDeviceToken] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [loadingStep, setLoadingStep] = useState(0);
+  const [loadingTip, setLoadingTip] = useState(SECURITY_TIPS[Math.floor(Math.random() * SECURITY_TIPS.length)]);
 
   // Scripts state
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -70,16 +72,27 @@ function App() {
   // ==========================================
   const fetchData = useCallback(async () => {
     try {
+      setLoadingStep(1);
+      await new Promise(r => setTimeout(r, 400));
+
+      setLoadingStep(2);
       const [metricsData, healthData, securityData, tokenData] = await Promise.all([
         invoke<SystemMetrics>('get_system_metrics'),
         invoke<HealthScore>('get_health_score'),
         invoke<SecurityStatus>('get_security_status'),
         invoke<string>('get_device_token'),
       ]);
+
+      setLoadingStep(3);
+      await new Promise(r => setTimeout(r, 300));
+
       setMetrics(metricsData);
       setHealth(healthData);
       setSecurity(securityData);
       setDeviceToken(tokenData);
+
+      setLoadingStep(4);
+      await new Promise(r => setTimeout(r, 500));
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -313,7 +326,43 @@ function App() {
   // RENDER
   // ==========================================
   if (loading) {
-    return <div className="app loading"><div className="spinner"></div><p>Chargement...</p></div>;
+    return (
+      <div className="startup-loader">
+        <div className="startup-container">
+          <div className="startup-logo">
+            <div className="logo-circle">
+              <div className="logo-pulse"></div>
+              <span className="logo-text">M</span>
+            </div>
+          </div>
+
+          <h1 className="startup-title">Microdiag Sentinel</h1>
+          <p className="startup-version">Version {APP_VERSION}</p>
+
+          <div className="startup-steps">
+            {STARTUP_STEPS.slice(0, 4).map((step, i) => (
+              <div key={i} className={`startup-step ${i < loadingStep ? 'done' : i === loadingStep ? 'active' : ''}`}>
+                <div className="step-indicator">
+                  {i < loadingStep ? '✓' : i === loadingStep ? <div className="step-spinner"></div> : (i + 1)}
+                </div>
+                <div className="step-content">
+                  <span className="step-message">{step.message}</span>
+                  <span className="step-detail">{step.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="startup-tip">
+            <div className="tip-icon">💡</div>
+            <div className="tip-content">
+              <span className="tip-label">Conseil sécurité</span>
+              <span className="tip-text">{loadingTip}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
