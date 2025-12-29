@@ -1,0 +1,78 @@
+name: Deploy to Server
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v2.1.0)'
+        required: true
+        default: 'latest'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: ${{ github.repository }}
+          latest: ${{ github.event.inputs.version == 'latest' || github.event.inputs.version == '' }}
+          tag: ${{ github.event.inputs.version != 'latest' && github.event.inputs.version || '' }}
+          fileName: '*.msi'
+          out-file-path: 'release-assets'
+
+      - name: Download EXE
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: ${{ github.repository }}
+          latest: ${{ github.event.inputs.version == 'latest' || github.event.inputs.version == '' }}
+          tag: ${{ github.event.inputs.version != 'latest' && github.event.inputs.version || '' }}
+          fileName: '*.exe'
+          out-file-path: 'release-assets'
+
+      - name: List downloaded files
+        run: ls -la release-assets/
+
+      - name: Deploy to Admin Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: 'release-assets/*'
+          target: '/opt/Microdiag/admin/downloads/'
+          strip_components: 1
+
+      - name: Deploy to App Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: 'release-assets/*'
+          target: '/opt/Microdiag/app/downloads/'
+          strip_components: 1
+
+      - name: Update symlinks on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/Microdiag/admin/downloads
+            # Créer des liens symboliques vers la dernière version
+            ln -sf $(ls -t *.msi 2>/dev/null | head -1) MicrodiagSentinel_latest.msi || true
+            ln -sf $(ls -t *setup*.exe 2>/dev/null | head -1) MicrodiagSentinel_latest_setup.exe || true
+
+            cd /opt/Microdiag/app/downloads
+            ln -sf $(ls -t *.msi 2>/dev/null | head -1) MicrodiagSentinel_latest.msi || true
+            ln -sf $(ls -t *setup*.exe 2>/dev/null | head -1) MicrodiagSentinel_latest_setup.exe || true
+
+            echo "Deployment complete!"
