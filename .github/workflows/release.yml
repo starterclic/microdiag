@@ -75,14 +75,19 @@ jobs:
       - name: Read signature file
         id: signature
         run: |
-          $sigFile = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          # Tauri generates .sig files for .nsis.zip bundles (updater format)
+          $sigFile = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.nsis.zip.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($sigFile) {
             $sig = Get-Content $sigFile.FullName -Raw
+            # Remove newlines for JSON compatibility
+            $sig = $sig.Trim()
             echo "SIGNATURE=$sig" >> $env:GITHUB_OUTPUT
             echo "Found signature: $($sigFile.Name)"
+            echo "Signature content: $sig"
           } else {
             echo "SIGNATURE=" >> $env:GITHUB_OUTPUT
             echo "No signature file found"
+            Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/" -ErrorAction SilentlyContinue
           }
         shell: pwsh
 
@@ -91,7 +96,8 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
           $signature = "${{ steps.signature.outputs.SIGNATURE }}"
-          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Microdiag.Sentinel_${version}_x64-setup.exe"
+          # Use the .nsis.zip URL for updater (Tauri expects this format)
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Microdiag.Sentinel_$($version)_x64-setup.nsis.zip"
 
           $body = @{
             version = $version
