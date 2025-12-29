@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "Microdiag Sentinel",
-    "version": "2.1.0"
+    "version": "2.2.0"
   },
   "tauri": {
     "allowlist": {
@@ -104,7 +104,9 @@
         "center": true,
         "decorations": true,
         "visible": true,
-        "focus": true
+        "focus": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false
       }
     ]
   }

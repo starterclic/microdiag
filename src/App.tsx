@@ -297,6 +297,8 @@ function App() {
   useEffect(() => {
     fetchData();
     fetchScripts();
+    // Auto-check for updates on startup
+    setTimeout(() => checkForUpdates(), 3000);
     const interval = setInterval(fetchData, 30000);
     const unlisten = listen('run-scan', fetchData);
     return () => { clearInterval(interval); unlisten.then((fn) => fn()); };
