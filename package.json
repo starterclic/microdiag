@@ -11,13 +11,13 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "@supabase/supabase-js": "^2.39.0",
-    "@tauri-apps/api": "^1.5.0"
+    "@tauri-apps/api": "^1.5.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^1.5.0",
+    "@tauri-apps/cli": "^1.6.3",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",

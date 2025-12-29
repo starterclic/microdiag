@@ -3,8 +3,8 @@
    ============================================ */
 
 .scan-page {
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
 }
 
 /* Scan Loader */
@@ -335,11 +335,18 @@
   color: var(--accent);
 }
 
-/* Scan Sections */
+/* Scan Sections - Multi-column grid */
 .scan-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+/* Single column on smaller screens */
+@media (max-width: 900px) {
+  .scan-sections {
+    grid-template-columns: 1fr;
+  }
 }
 
 .scan-section {

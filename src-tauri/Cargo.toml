@@ -1,6 +1,6 @@
 [package]
 name = "microdiag-sentinel"
-version = "2.2.4"
+version = "2.2.5"
 description = "Microdiag Sentinel Agent - Surveillance système intelligente"
 authors = ["Microdiag Team"]
 license = "MIT"
