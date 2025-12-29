@@ -1,0 +1,13 @@
+/* ============================================
+   MICRODIAG SENTINEL - Main Stylesheet
+   Imports all modular CSS files
+   ============================================ */
+
+@import './base.css';
+@import './sidebar.css';
+@import './dashboard.css';
+@import './tools.css';
+@import './chat.css';
+@import './settings.css';
+@import './scan.css';
+@import './modals.css';
