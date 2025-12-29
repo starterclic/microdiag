@@ -52,6 +52,11 @@ function App() {
   const [showUrgency, setShowUrgency] = useState(false);
   const [urgencyType, setUrgencyType] = useState('crash');
   const [urgencyDesc, setUrgencyDesc] = useState('');
+  const [urgencyName, setUrgencyName] = useState('');
+  const [urgencyEmail, setUrgencyEmail] = useState('');
+  const [urgencyPhone, setUrgencyPhone] = useState('');
+  const [urgencySending, setUrgencySending] = useState(false);
+  const [urgencySuccess, setUrgencySuccess] = useState(false);
 
   // Update state
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null);
@@ -210,21 +215,91 @@ function App() {
   };
 
   // ==========================================
-  // URGENCY
+  // URGENCY / SUPPORT REQUEST
   // ==========================================
   const sendUrgencyRequest = async () => {
     if (!urgencyDesc.trim()) return;
+    setUrgencySending(true);
+
     try {
+      // Get device info to include with the request
+      const hostname = metrics?.hostname || 'Unknown';
+      const osInfo = metrics?.os_type ? `${metrics.os_type} ${metrics.os_version || ''}` : 'Unknown';
+
+      // Build the description with contact info and device info
+      let fullDescription = urgencyDesc;
+      if (urgencyName || urgencyEmail || urgencyPhone) {
+        fullDescription += `\n\n--- Coordonnees ---`;
+        if (urgencyName) fullDescription += `\nNom: ${urgencyName}`;
+        if (urgencyEmail) fullDescription += `\nEmail: ${urgencyEmail}`;
+        if (urgencyPhone) fullDescription += `\nTel: ${urgencyPhone}`;
+      }
+      fullDescription += `\n\n--- Appareil ---\nPC: ${hostname}\nOS: ${osInfo}`;
+
+      // Find device ID from token
+      let deviceId = null;
+      try {
+        const deviceRes = await fetch(`${SUPABASE_URL}/rest/v1/devices?device_token=eq.${deviceToken}&select=id`, {
+          headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY },
+        });
+        const devices = await deviceRes.json();
+        if (devices && devices.length > 0) {
+          deviceId = devices[0].id;
+        }
+      } catch {
+        // Device lookup failed, continue without device_id
+      }
+
+      // Create the support request
+      const requestBody: Record<string, unknown> = {
+        type: urgencyType,
+        description: fullDescription,
+        status: 'pending',
+        priority: urgencyType === 'virus' || urgencyType === 'crash' ? 'urgent' : 'high',
+      };
+
+      // Add device_id if found
+      if (deviceId) {
+        requestBody.device_id = deviceId;
+      }
+
+      // Add contact info as metadata for the admin to see
+      if (urgencyEmail) {
+        requestBody.contact_email = urgencyEmail;
+      }
+      if (urgencyPhone) {
+        requestBody.contact_phone = urgencyPhone;
+      }
+      if (urgencyName) {
+        requestBody.contact_name = urgencyName;
+      }
+
       await fetch(`${SUPABASE_URL}/rest/v1/support_requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY, Prefer: 'return=minimal' },
-        body: JSON.stringify({ type: urgencyType, description: urgencyDesc, status: 'pending', priority: 'urgent' }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          apikey: SUPABASE_ANON_KEY,
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(requestBody),
       });
-      await invoke('send_notification', { title: 'Demande envoyee', body: 'Un expert vous contactera.' });
-      setShowUrgency(false);
-      setUrgencyDesc('');
+
+      await invoke('send_notification', { title: 'Demande envoyee', body: 'Un expert vous contactera rapidement.' });
+      setUrgencySuccess(true);
+      setTimeout(() => {
+        setShowUrgency(false);
+        setUrgencyDesc('');
+        setUrgencyName('');
+        setUrgencyEmail('');
+        setUrgencyPhone('');
+        setUrgencySuccess(false);
+      }, 2000);
     } catch (error) {
       console.error('Erreur urgence:', error);
+      await invoke('send_notification', { title: 'Erreur', body: 'Impossible d\'envoyer la demande.' });
+    } finally {
+      setUrgencySending(false);
     }
   };
 
@@ -428,33 +503,97 @@ function App() {
 
       {/* Urgency Modal */}
       {showUrgency && (
-        <div className="modal-overlay" onClick={() => setShowUrgency(false)}>
+        <div className="modal-overlay" onClick={() => !urgencySending && setShowUrgency(false)}>
           <div className="modal urgency-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Demande d'Intervention</h2>
-              <button className="close-btn" onClick={() => setShowUrgency(false)}>X</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Type de probleme</label>
-                <select value={urgencyType} onChange={(e) => setUrgencyType(e.target.value)}>
-                  <option value="crash">Mon PC a plante</option>
-                  <option value="virus">Suspicion de virus</option>
-                  <option value="network">Plus d'internet</option>
-                  <option value="slow">PC tres lent</option>
-                  <option value="printer">Probleme imprimante</option>
-                  <option value="other">Autre</option>
-                </select>
+            {urgencySuccess ? (
+              <div className="success-state">
+                <div className="success-icon">✓</div>
+                <h2>Demande Envoyee !</h2>
+                <p>Un expert Microdiag vous contactera tres rapidement.</p>
               </div>
-              <div className="form-group">
-                <label>Decrivez le probleme</label>
-                <textarea value={urgencyDesc} onChange={(e) => setUrgencyDesc(e.target.value)} placeholder="Expliquez..." rows={4} />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setShowUrgency(false)}>Annuler</button>
-              <button className="btn-danger" onClick={sendUrgencyRequest}>Envoyer</button>
-            </div>
+            ) : (
+              <>
+                <div className="modal-header">
+                  <h2>🆘 Demande d'Intervention</h2>
+                  <button className="close-btn" onClick={() => setShowUrgency(false)} disabled={urgencySending}>✕</button>
+                </div>
+                <div className="modal-body">
+                  <div className="urgency-intro">
+                    <p>Un probleme avec votre PC ? Decrivez-le et un expert vous contactera.</p>
+                  </div>
+                  <div className="form-group">
+                    <label>Type de probleme</label>
+                    <select value={urgencyType} onChange={(e) => setUrgencyType(e.target.value)} disabled={urgencySending}>
+                      <option value="crash">💥 Mon PC a plante / ecran bleu</option>
+                      <option value="virus">🦠 Suspicion de virus / comportement anormal</option>
+                      <option value="network">🌐 Plus d'internet / connexion lente</option>
+                      <option value="slow">🐢 PC tres lent</option>
+                      <option value="printer">🖨️ Probleme imprimante</option>
+                      <option value="software">📦 Probleme logiciel</option>
+                      <option value="hardware">🔧 Probleme materiel</option>
+                      <option value="other">❓ Autre</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Decrivez le probleme</label>
+                    <textarea
+                      value={urgencyDesc}
+                      onChange={(e) => setUrgencyDesc(e.target.value)}
+                      placeholder="Depuis quand ? Que s'est-il passe ? Messages d'erreur ?"
+                      rows={3}
+                      disabled={urgencySending}
+                    />
+                  </div>
+                  <div className="form-divider">
+                    <span>Vos coordonnees (optionnel)</span>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group half">
+                      <label>Votre nom</label>
+                      <input
+                        type="text"
+                        value={urgencyName}
+                        onChange={(e) => setUrgencyName(e.target.value)}
+                        placeholder="Jean Dupont"
+                        disabled={urgencySending}
+                      />
+                    </div>
+                    <div className="form-group half">
+                      <label>Telephone</label>
+                      <input
+                        type="tel"
+                        value={urgencyPhone}
+                        onChange={(e) => setUrgencyPhone(e.target.value)}
+                        placeholder="06 12 34 56 78"
+                        disabled={urgencySending}
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Email</label>
+                    <input
+                      type="email"
+                      value={urgencyEmail}
+                      onChange={(e) => setUrgencyEmail(e.target.value)}
+                      placeholder="votre@email.com"
+                      disabled={urgencySending}
+                    />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn-secondary" onClick={() => setShowUrgency(false)} disabled={urgencySending}>
+                    Annuler
+                  </button>
+                  <button className="btn-danger" onClick={sendUrgencyRequest} disabled={urgencySending || !urgencyDesc.trim()}>
+                    {urgencySending ? (
+                      <><span className="spinner-small"></span>Envoi...</>
+                    ) : (
+                      <>📤 Envoyer la demande</>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

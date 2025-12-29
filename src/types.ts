@@ -10,6 +10,7 @@ export interface SystemMetrics {
   disks: DiskInfo[];
   hostname: string;
   os_version: string;
+  os_type?: string;
 }
 
 export interface DiskInfo {

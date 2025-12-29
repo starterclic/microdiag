@@ -1,35 +1,87 @@
 // ============================================
-// MICRODIAG SENTINEL - Scan Page Premium
+// MICRODIAG SENTINEL - Scan Page Premium v2
+// Affichage en colonnes, vulgarise et rassurant
 // ============================================
 
 import { useState } from 'react';
-import { ScanReport } from '../types';
+import { ScanReport, ScanSection } from '../types';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../constants';
 
 const SCAN_STEPS = [
-  { icon: '!', label: 'Journaux systeme' },
-  { icon: 'X', label: 'Ecrans bleus' },
-  { icon: 'S', label: 'Protection antivirus' },
-  { icon: 'A', label: 'Applications' },
-  { icon: 'D', label: 'Bureau distant' },
-  { icon: 'P', label: 'Ports reseau' },
-  { icon: 'C', label: 'Extensions Chrome' },
-  { icon: 'S', label: 'Demarrage' },
-  { icon: 'D', label: 'Espace disque' },
-  { icon: 'U', label: 'Mises a jour' },
+  { icon: '📋', label: 'Journaux systeme' },
+  { icon: '💥', label: 'Ecrans bleus' },
+  { icon: '🛡️', label: 'Protection antivirus' },
+  { icon: '📦', label: 'Applications' },
+  { icon: '🌐', label: 'Bureau distant' },
+  { icon: '🔌', label: 'Ports reseau' },
+  { icon: '🔍', label: 'Extensions navigateur' },
+  { icon: '🚀', label: 'Demarrage' },
+  { icon: '💾', label: 'Espace disque' },
+  { icon: '🔄', label: 'Mises a jour' },
 ];
 
-const SECTION_ICONS: Record<string, string> = {
-  logs: '!',
-  bsod: 'X',
-  shield: 'S',
-  apps: 'A',
-  rdp: 'D',
-  network: 'P',
-  browser: 'C',
-  startup: 'S',
-  disk: 'D',
-  update: 'U',
+// Categories thematiques pour le rapport
+const THEMES: Record<string, { title: string; icon: string; color: string; description: string }> = {
+  security: {
+    title: 'Securite',
+    icon: '🛡️',
+    color: '#ef4444',
+    description: 'Protection contre les menaces'
+  },
+  performance: {
+    title: 'Performances',
+    icon: '⚡',
+    color: '#3b82f6',
+    description: 'Vitesse et reactivite'
+  },
+  maintenance: {
+    title: 'Entretien',
+    icon: '🔧',
+    color: '#10b981',
+    description: 'Sante generale du systeme'
+  },
+  info: {
+    title: 'Informations',
+    icon: '📊',
+    color: '#8b5cf6',
+    description: 'Details techniques'
+  }
+};
+
+// Mapping des sections vers les themes
+const SECTION_THEMES: Record<string, string> = {
+  shield: 'security',
+  rdp: 'security',
+  network: 'security',
+  browser: 'security',
+  bsod: 'performance',
+  startup: 'performance',
+  disk: 'maintenance',
+  update: 'maintenance',
+  apps: 'maintenance',
+  logs: 'info'
+};
+
+// Titres vulgarises
+const SECTION_TITLES: Record<string, string> = {
+  shield: 'Antivirus et Protection',
+  rdp: 'Acces a distance',
+  network: 'Securite reseau',
+  browser: 'Extensions navigateur',
+  bsod: 'Stabilite systeme',
+  startup: 'Demarrage rapide',
+  disk: 'Espace de stockage',
+  update: 'Mises a jour Windows',
+  apps: 'Applications installees',
+  logs: 'Journal systeme'
+};
+
+// Messages rassurants par status
+const STATUS_MESSAGES: Record<string, { label: string; message: string }> = {
+  ok: { label: 'Tout va bien', message: 'Aucun probleme detecte' },
+  warning: { label: 'A surveiller', message: 'Quelques points meritent attention' },
+  critical: { label: 'Action requise', message: 'Necessite votre attention' },
+  info: { label: 'Information', message: 'Detail technique' }
 };
 
 interface ScanPageProps {
@@ -63,6 +115,21 @@ export function ScanPage({
     setExpandedSections(newExpanded);
   };
 
+  // Grouper les sections par theme
+  const groupSectionsByTheme = (sections: ScanSection[]) => {
+    const grouped: Record<string, ScanSection[]> = {
+      security: [],
+      performance: [],
+      maintenance: [],
+      info: []
+    };
+    sections.forEach(section => {
+      const theme = SECTION_THEMES[section.icon] || 'info';
+      grouped[theme].push(section);
+    });
+    return grouped;
+  };
+
   const getAiRecommendations = async () => {
     if (!scanReport) return;
     setAiLoading(true);
@@ -73,7 +140,7 @@ export function ScanPage({
       .map(s => `${s.title}: ${s.items.summary}. ${s.explanation}`)
       .join('. ');
 
-    const prompt = `Analyse ce rapport de securite PC et donne des recommandations claires et rassurantes en francais. Score: ${scanReport.score}/100. Problemes: ${problemSections || 'Aucun probleme majeur'}. Reponds en 3-4 phrases maximum avec des conseils concrets.`;
+    const prompt = `Tu es un assistant informatique bienveillant. Analyse ce rapport de securite PC et donne des conseils simples, rassurants et actionables en francais. Score: ${scanReport.score}/100. Problemes: ${problemSections || 'Aucun probleme majeur'}. Commence par rassurer l'utilisateur, puis donne 2-3 conseils pratiques. Maximum 4 phrases.`;
 
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/ai-chat`, {
@@ -92,6 +159,7 @@ export function ScanPage({
 
   const exportPDF = () => {
     if (!scanReport) return;
+    const groupedSections = groupSectionsByTheme(scanReport.sections);
 
     const printContent = `
       <!DOCTYPE html>
@@ -111,39 +179,22 @@ export function ScanPage({
           .score-value { font-size: 42px; font-weight: 700; color: ${scanReport.status === 'critical' ? '#ef4444' : scanReport.status === 'warning' ? '#ffc107' : '#00c853'}; }
           .score-label { font-size: 12px; color: #666; }
           .score-info h2 { font-size: 20px; margin-bottom: 10px; }
-          .score-message { font-size: 16px; color: #333; margin-bottom: 8px; }
-          .score-advice { font-size: 14px; color: #666; font-style: italic; }
-          .summary-badges { display: flex; gap: 15px; margin-top: 15px; }
-          .badge { padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; }
-          .badge.critical { background: #fef2f2; color: #ef4444; }
-          .badge.warning { background: #fffbeb; color: #d97706; }
-          .badge.ok { background: #f0fdf4; color: #16a34a; }
-          .section { margin-bottom: 20px; padding: 20px; border-radius: 12px; background: #fafafa; border-left: 4px solid #ddd; page-break-inside: avoid; }
+          .theme-section { margin-bottom: 30px; }
+          .theme-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 2px solid #eee; }
+          .section { margin-bottom: 15px; padding: 15px; border-radius: 10px; background: #fafafa; border-left: 4px solid #ddd; }
           .section.ok { border-left-color: #00c853; }
           .section.warning { border-left-color: #ffc107; }
           .section.critical { border-left-color: #ef4444; }
-          .section.info { border-left-color: #3b82f6; }
-          .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-          .section-icon { width: 36px; height: 36px; border-radius: 50%; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-weight: 600; }
-          .section-title { flex: 1; font-size: 16px; font-weight: 600; }
-          .section-badge { padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-          .section-badge.ok { background: #dcfce7; color: #16a34a; }
-          .section-badge.warning { background: #fef3c7; color: #d97706; }
-          .section-badge.critical { background: #fef2f2; color: #dc2626; }
-          .section-badge.info { background: #dbeafe; color: #2563eb; }
-          .section-summary { font-size: 14px; color: #333; margin-bottom: 10px; font-weight: 500; }
-          .section-explanation { font-size: 13px; color: #555; line-height: 1.6; margin-bottom: 10px; padding: 12px; background: #fff; border-radius: 8px; }
-          .section-action { font-size: 13px; color: #ff6b00; font-weight: 500; }
+          .section-title { font-weight: 600; margin-bottom: 5px; }
+          .section-summary { color: #555; font-size: 14px; margin-bottom: 8px; }
+          .section-action { color: #ff6b00; font-size: 13px; font-weight: 500; }
           .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #888; font-size: 12px; }
-          .ai-section { margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #fff7ed 0%, #fff 100%); border-radius: 16px; border: 2px solid #ff6b00; }
-          .ai-title { font-size: 16px; font-weight: 600; color: #ff6b00; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-          .ai-content { font-size: 14px; color: #333; line-height: 1.7; }
         </style>
       </head>
       <body>
         <div class="header">
           <div class="logo">MICRODIAG SENTINEL</div>
-          <div class="title">Rapport de Securite Informatique</div>
+          <div class="title">Rapport de Sante de votre PC</div>
           <div class="info">${scanReport.hostname} | ${scanReport.osVersion} | ${scanReport.timestamp}</div>
         </div>
 
@@ -153,40 +204,27 @@ export function ScanPage({
             <div class="score-label">/100</div>
           </div>
           <div class="score-info">
-            <h2>Score de Securite Global</h2>
-            <p class="score-message">${scanReport.message}</p>
-            <p class="score-advice">${scanReport.advice}</p>
-            <div class="summary-badges">
-              <span class="badge critical">${scanReport.summary.critical} critique(s)</span>
-              <span class="badge warning">${scanReport.summary.warning} attention(s)</span>
-              <span class="badge ok">${scanReport.summary.ok} OK</span>
-            </div>
+            <h2>${scanReport.message}</h2>
+            <p>${scanReport.advice}</p>
           </div>
         </div>
 
-        ${aiRecommendation ? `
-        <div class="ai-section">
-          <div class="ai-title">Recommandations de l'Assistant IA</div>
-          <div class="ai-content">${aiRecommendation}</div>
-        </div>
-        ` : ''}
-
-        ${scanReport.sections.map(section => `
-          <div class="section ${section.status}">
-            <div class="section-header">
-              <div class="section-icon">${SECTION_ICONS[section.icon] || section.icon}</div>
-              <div class="section-title">${section.title}</div>
-              <span class="section-badge ${section.status}">${section.status === 'ok' ? 'OK' : section.status === 'warning' ? 'Attention' : section.status === 'critical' ? 'Critique' : 'Info'}</span>
-            </div>
-            <div class="section-summary">${section.items.summary}</div>
-            <div class="section-explanation">${section.explanation}</div>
-            ${section.action ? `<div class="section-action">Recommandation: ${section.action}</div>` : ''}
+        ${Object.entries(groupedSections).filter(([, sections]) => sections.length > 0).map(([theme, sections]) => `
+          <div class="theme-section">
+            <div class="theme-title">${THEMES[theme].icon} ${THEMES[theme].title}</div>
+            ${sections.map(section => `
+              <div class="section ${section.status}">
+                <div class="section-title">${SECTION_TITLES[section.icon] || section.title}</div>
+                <div class="section-summary">${section.items.summary}</div>
+                ${section.action ? `<div class="section-action">💡 ${section.action}</div>` : ''}
+              </div>
+            `).join('')}
           </div>
         `).join('')}
 
         <div class="footer">
-          <p>Rapport genere par Microdiag Sentinel | ${new Date().toLocaleDateString('fr-FR')} | www.microdiag.fr</p>
-          <p style="margin-top: 8px;">Ce rapport est une analyse automatisee. Pour une expertise approfondie, contactez nos techniciens.</p>
+          <p>Rapport genere par Microdiag Sentinel | ${new Date().toLocaleDateString('fr-FR')}</p>
+          <p style="margin-top: 8px;">Pour une expertise approfondie, contactez nos techniciens.</p>
         </div>
       </body>
       </html>
@@ -196,23 +234,40 @@ export function ScanPage({
     if (printWindow) {
       printWindow.document.write(printContent);
       printWindow.document.close();
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
+      setTimeout(() => printWindow.print(), 500);
     }
   };
+
+  // Calculer le verdict global
+  const getVerdict = () => {
+    if (!scanReport) return null;
+    if (scanReport.score >= 80) {
+      return { emoji: '✅', title: 'Excellent !', subtitle: 'Votre PC est en pleine forme', color: 'success' };
+    } else if (scanReport.score >= 60) {
+      return { emoji: '👍', title: 'Correct', subtitle: 'Quelques points a ameliorer', color: 'warning' };
+    } else if (scanReport.score >= 40) {
+      return { emoji: '⚠️', title: 'A surveiller', subtitle: 'Plusieurs elements necessitent attention', color: 'warning' };
+    }
+    return { emoji: '🔴', title: 'Attention requise', subtitle: 'Des actions sont necessaires', color: 'critical' };
+  };
+
+  const groupedSections = scanReport ? groupSectionsByTheme(scanReport.sections) : null;
+  const verdict = getVerdict();
 
   return (
     <div className="page scan-page">
       <div className="page-header">
         <div>
-          <h1>Rapport de Securite</h1>
-          <p className="page-subtitle">Analyse approfondie de votre systeme</p>
+          <h1>Bilan de Sante</h1>
+          <p className="page-subtitle">Diagnostic complet de votre PC</p>
         </div>
         {scanReport && !scanRunning && (
           <div className="header-actions">
+            <button className="btn-secondary" onClick={onRunScan}>
+              🔄 Relancer
+            </button>
             <button className="btn-export" onClick={exportPDF}>
-              Exporter PDF
+              📄 Exporter PDF
             </button>
           </div>
         )}
@@ -225,7 +280,7 @@ export function ScanPage({
             <div className="scan-radar">
               <div className="radar-sweep"></div>
               <div className="radar-center">
-                <span className="radar-icon">{SCAN_STEPS[scanStep]?.icon || '?'}</span>
+                <span className="radar-icon">{SCAN_STEPS[scanStep]?.icon || '🔍'}</span>
               </div>
             </div>
 
@@ -239,10 +294,10 @@ export function ScanPage({
               <span className="scan-progress-text">{scanProgress}%</span>
             </div>
 
-            <div className="scan-steps-list">
+            <div className="scan-steps-grid">
               {SCAN_STEPS.map((step, i) => (
-                <div key={i} className={`scan-step-item ${i < scanStep ? 'done' : i === scanStep ? 'active' : ''}`}>
-                  <span className="step-icon">{i < scanStep ? 'OK' : step.icon}</span>
+                <div key={i} className={`scan-step-chip ${i < scanStep ? 'done' : i === scanStep ? 'active' : ''}`}>
+                  <span className="step-icon">{i < scanStep ? '✓' : step.icon}</span>
                   <span className="step-label">{step.label}</span>
                 </div>
               ))}
@@ -254,11 +309,11 @@ export function ScanPage({
       {/* Error Message */}
       {scanError && !scanRunning && (
         <div className="scan-error">
-          <div className="scan-error-icon">!</div>
-          <h2>Erreur lors du scan</h2>
+          <div className="scan-error-icon">⚠️</div>
+          <h2>Oups, une erreur s'est produite</h2>
           <p className="error-details">{scanError}</p>
           <button className="scan-start-btn" onClick={onRunScan}>
-            Reessayer
+            Reessayer l'analyse
           </button>
         </div>
       )}
@@ -266,70 +321,68 @@ export function ScanPage({
       {/* No Report Yet */}
       {!scanRunning && !scanReport && !scanError && (
         <div className="scan-empty">
-          <div className="scan-empty-icon">Shield</div>
-          <h2>Analysez la sante de votre PC</h2>
-          <p>Notre scan intelligent examine 10 points critiques de securite et vous fournit un rapport detaille avec des recommandations personnalisees.</p>
-          <div className="scan-features">
-            <div className="feature-item">Journaux systeme</div>
-            <div className="feature-item">Protection antivirus</div>
-            <div className="feature-item">Ports reseau</div>
-            <div className="feature-item">Mises a jour</div>
+          <div className="scan-empty-icon">🔍</div>
+          <h2>Faites le check-up de votre PC</h2>
+          <p>Notre analyse intelligente examine 10 points essentiels de votre ordinateur et vous donne des conseils personnalises.</p>
+          <div className="scan-features-grid">
+            <div className="feature-card">
+              <span className="feature-icon">🛡️</span>
+              <span className="feature-label">Securite</span>
+              <span className="feature-desc">Antivirus, reseau</span>
+            </div>
+            <div className="feature-card">
+              <span className="feature-icon">⚡</span>
+              <span className="feature-label">Performance</span>
+              <span className="feature-desc">Demarrage, stabilite</span>
+            </div>
+            <div className="feature-card">
+              <span className="feature-icon">🔧</span>
+              <span className="feature-label">Entretien</span>
+              <span className="feature-desc">Disque, mises a jour</span>
+            </div>
           </div>
           <button className="scan-start-btn" onClick={onRunScan}>
-            Lancer l'analyse complete
+            🚀 Lancer le diagnostic
           </button>
         </div>
       )}
 
-      {/* Scan Report */}
-      {!scanRunning && scanReport && (
-        <div className="scan-report">
-          {/* Score Card */}
-          <div className={`scan-score-card ${scanReport.status}`}>
-            <div className="scan-score-circle">
-              <svg viewBox="0 0 100 100">
-                <circle className="score-bg" cx="50" cy="50" r="45" />
-                <circle
-                  className="score-progress"
-                  cx="50" cy="50" r="45"
-                  strokeDasharray={`${scanReport.score * 2.83} 283`}
-                />
-              </svg>
-              <div className="score-value">{scanReport.score}</div>
+      {/* Scan Report - Nouvelle mise en page */}
+      {!scanRunning && scanReport && verdict && groupedSections && (
+        <div className="scan-report-v2">
+          {/* Score Card - Pleine largeur */}
+          <div className={`verdict-card ${verdict.color}`}>
+            <div className="verdict-emoji">{verdict.emoji}</div>
+            <div className="verdict-score">
+              <span className="score-number">{scanReport.score}</span>
+              <span className="score-label">/100</span>
             </div>
-            <div className="scan-score-info">
-              <h2>{scanReport.message}</h2>
-              <p className="score-advice">{scanReport.advice}</p>
-              <div className="scan-summary">
-                {scanReport.summary.critical > 0 && (
-                  <span className="summary-item critical">{scanReport.summary.critical} critique(s)</span>
-                )}
-                {scanReport.summary.warning > 0 && (
-                  <span className="summary-item warning">{scanReport.summary.warning} attention(s)</span>
-                )}
-                {(scanReport.summary.info || 0) > 0 && (
-                  <span className="summary-item info">{scanReport.summary.info} info(s)</span>
-                )}
-                <span className="summary-item ok">{scanReport.summary.ok} OK</span>
-              </div>
-              <p className="scan-timestamp">{scanReport.hostname} | {scanReport.timestamp}</p>
+            <div className="verdict-text">
+              <h2>{verdict.title}</h2>
+              <p>{verdict.subtitle}</p>
             </div>
-            <button className="scan-refresh-btn" onClick={onRunScan}>
-              Relancer
-            </button>
+            <div className="verdict-summary">
+              {scanReport.summary.critical > 0 && (
+                <span className="badge critical">🔴 {scanReport.summary.critical} critique(s)</span>
+              )}
+              {scanReport.summary.warning > 0 && (
+                <span className="badge warning">🟡 {scanReport.summary.warning} attention(s)</span>
+              )}
+              <span className="badge ok">🟢 {scanReport.summary.ok} OK</span>
+            </div>
           </div>
 
           {/* AI Recommendations */}
-          <div className="ai-recommendations-card">
-            <div className="ai-card-header">
-              <span className="ai-icon">AI</span>
-              <h3>Recommandations Intelligentes</h3>
+          <div className="ai-card">
+            <div className="ai-header">
+              <span className="ai-icon">🤖</span>
+              <h3>Conseils personnalises</h3>
             </div>
             {!aiRecommendation && !aiLoading && (
-              <div className="ai-card-empty">
-                <p>Notre IA peut analyser votre rapport et vous donner des conseils personnalises.</p>
+              <div className="ai-empty">
+                <p>Notre assistant peut analyser votre rapport et vous donner des conseils adaptes.</p>
                 <button className="ai-btn" onClick={getAiRecommendations}>
-                  Obtenir des recommandations
+                  ✨ Obtenir des conseils
                 </button>
               </div>
             )}
@@ -340,73 +393,102 @@ export function ScanPage({
               </div>
             )}
             {aiRecommendation && (
-              <div className="ai-content">
+              <div className="ai-result">
                 <p>{aiRecommendation}</p>
                 <button className="ai-refresh" onClick={getAiRecommendations}>
-                  Nouvelle analyse
+                  🔄 Nouvelle analyse
                 </button>
               </div>
             )}
           </div>
 
-          {/* Escalation Card */}
-          {scanReport.status === 'critical' && (
-            <div className="escalation-card">
-              <div className="escalation-icon">!</div>
-              <div className="escalation-content">
-                <h3>Intervention recommandee</h3>
-                <p>Votre PC presente des problemes necessitant l'attention d'un expert. Nos techniciens Microdiag peuvent vous aider.</p>
+          {/* Themes Grid - 2 colonnes */}
+          <div className="themes-grid">
+            {Object.entries(THEMES).map(([themeKey, theme]) => {
+              const themeSections = groupedSections[themeKey] || [];
+              if (themeSections.length === 0) return null;
+
+              const hasIssues = themeSections.some(s => s.status === 'critical' || s.status === 'warning');
+              const allOk = themeSections.every(s => s.status === 'ok');
+
+              return (
+                <div key={themeKey} className={`theme-card ${hasIssues ? 'has-issues' : ''} ${allOk ? 'all-ok' : ''}`}>
+                  <div className="theme-header" style={{ borderColor: theme.color }}>
+                    <span className="theme-icon">{theme.icon}</span>
+                    <div className="theme-title">
+                      <h3>{theme.title}</h3>
+                      <span className="theme-desc">{theme.description}</span>
+                    </div>
+                    <span className={`theme-status ${allOk ? 'ok' : hasIssues ? 'warning' : ''}`}>
+                      {allOk ? '✓' : hasIssues ? '!' : '•'}
+                    </span>
+                  </div>
+                  <div className="theme-sections">
+                    {themeSections.map((section, i) => {
+                      const sectionIndex = scanReport.sections.indexOf(section);
+                      const isExpanded = expandedSections.has(sectionIndex);
+                      const statusInfo = STATUS_MESSAGES[section.status] || STATUS_MESSAGES.info;
+
+                      return (
+                        <div
+                          key={i}
+                          className={`section-item ${section.status} ${isExpanded ? 'expanded' : ''}`}
+                          onClick={() => toggleSection(sectionIndex)}
+                        >
+                          <div className="section-row">
+                            <div className="section-main">
+                              <span className="section-name">{SECTION_TITLES[section.icon] || section.title}</span>
+                              <span className="section-summary-text">{section.items.summary}</span>
+                            </div>
+                            <div className="section-right">
+                              <span className={`status-badge ${section.status}`}>
+                                {section.status === 'ok' ? '✓' : section.status === 'warning' ? '!' : section.status === 'critical' ? '✗' : 'i'}
+                              </span>
+                              <span className="expand-icon">{isExpanded ? '−' : '+'}</span>
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="section-details">
+                              <div className="detail-block">
+                                <strong>💬 Explication simple :</strong>
+                                <p>{section.explanation}</p>
+                              </div>
+                              {section.action && (
+                                <div className="detail-block action">
+                                  <strong>💡 Notre conseil :</strong>
+                                  <p>{section.action}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Help Card - si problemes critiques */}
+          {scanReport.summary.critical > 0 && (
+            <div className="help-card">
+              <div className="help-icon">🆘</div>
+              <div className="help-content">
+                <h3>Besoin d'aide ?</h3>
+                <p>Notre equipe peut vous aider a resoudre les problemes detectes.</p>
               </div>
-              <button className="escalation-btn">
-                Demander une intervention
+              <button className="help-btn">
+                Demander de l'aide
               </button>
             </div>
           )}
 
-          {/* Sections */}
-          <div className="scan-sections">
-            {scanReport.sections.map((section, i) => (
-              <div
-                key={i}
-                className={`scan-section ${section.status} ${expandedSections.has(i) ? 'expanded' : ''}`}
-                onClick={() => toggleSection(i)}
-              >
-                <div className="section-header">
-                  <span className="section-icon">{SECTION_ICONS[section.icon] || section.icon}</span>
-                  <h3>{section.title}</h3>
-                  <span className={`section-badge ${section.status}`}>
-                    {section.status === 'ok' ? 'OK' : section.status === 'warning' ? 'Attention' : section.status === 'critical' ? 'Critique' : 'Info'}
-                  </span>
-                  <span className="section-expand">{expandedSections.has(i) ? '-' : '+'}</span>
-                </div>
-                <p className="section-summary">{section.items.summary}</p>
-
-                {expandedSections.has(i) && (
-                  <div className="section-expanded-content">
-                    <div className="section-explanation">
-                      <strong>Explication:</strong> {section.explanation}
-                    </div>
-                    {section.action && (
-                      <div className="section-action">
-                        <strong>Recommandation:</strong> {section.action}
-                      </div>
-                    )}
-                    {section.items.details && Array.isArray(section.items.details) && section.items.details.length > 0 && (
-                      <div className="section-details">
-                        <strong>Details:</strong>
-                        {section.items.details.slice(0, 8).map((detail: Record<string, unknown>, j: number) => (
-                          <div key={j} className="detail-item">
-                            {Object.entries(detail).slice(0, 4).map(([key, val]) => (
-                              <span key={key} className="detail-value" title={key}>{String(val)}</span>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+          {/* Footer info */}
+          <div className="scan-footer">
+            <span>📍 {scanReport.hostname}</span>
+            <span>🖥️ {scanReport.osVersion}</span>
+            <span>🕐 {scanReport.timestamp}</span>
           </div>
         </div>
       )}
