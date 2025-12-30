@@ -26,7 +26,7 @@ use std::time::Duration;
 use std::path::PathBuf;
 use std::fs;
 use tauri::{
-    Manager, AppHandle,
+    Manager, AppHandle, Emitter,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState},
 };
@@ -588,7 +588,7 @@ fn main() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .menu_on_left_click(false)
+                .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     match event {
                         TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
