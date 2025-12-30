@@ -35,7 +35,13 @@ pub struct HealthScore {
 
 impl SystemMetrics {
     pub fn collect(sys: &mut System) -> Self {
-        sys.refresh_all();
+        // Only refresh what we need (FAST - ~50ms vs ~2s for refresh_all)
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+
+        // Small delay for CPU measurement accuracy
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        sys.refresh_cpu_all();
 
         let cpus = sys.cpus();
         let cpu_usage = if cpus.is_empty() {

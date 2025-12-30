@@ -549,22 +549,27 @@ fn main() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
     println!("[Microdiag] SQLite database initialized");
 
-    // Load or create persistent device token
+    // Load or create persistent device token (ONCE)
     let device_token = load_or_create_device_token();
 
-    // Create shared state with database
-    let db_for_state = Arc::clone(&db);
-    let db_for_sync = Arc::clone(&db);
+    // Initialize sysinfo with minimal data first (FAST)
+    // Full refresh will happen in background
+    let mut system = System::new();
+    system.refresh_memory();  // Fast - only memory
+    println!("[Microdiag] System info initialized (minimal)");
 
+    // Create SINGLE shared state
     let state = Arc::new(AppState {
-        system: Mutex::new(System::new_all()),
-        device_token: Mutex::new(device_token.clone()),
+        system: Mutex::new(system),
+        device_token: Mutex::new(device_token),
         heartbeat_running: Mutex::new(true),
-        db: db_for_state,
+        db: Arc::clone(&db),
     });
 
+    let state_for_manage = Arc::clone(&state);
     let state_heartbeat = Arc::clone(&state);
     let state_commands = Arc::clone(&state);
+    let db_for_sync = Arc::clone(&db);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -620,35 +625,27 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Start background loops with shared state
             start_heartbeat_loop(handle.clone(), Arc::clone(&state_heartbeat));
             start_command_loop(Arc::clone(&state_commands));
 
-            // Start background sync with Supabase
+            // Start background sync with Supabase (delayed)
             start_sync_loop(Arc::clone(&db_for_sync));
             println!("[Microdiag] Background sync started");
 
-            // Force window to front after startup (improved for Windows)
+            // Force window to front after startup
             if let Some(window) = app.get_webview_window("main") {
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                     let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_always_on_top(true);
                     let _ = window.set_focus();
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    let _ = window.set_always_on_top(false);
                 });
             }
 
             println!("[Microdiag] Agent v{} started (Local-First + Tauri v2)", AGENT_VERSION);
             Ok(())
         })
-        .manage(AppState {
-            system: Mutex::new(System::new_all()),
-            device_token: Mutex::new(load_or_create_device_token()),
-            heartbeat_running: Mutex::new(true),
-            db: Arc::clone(&db),
-        })
+        .manage(state_for_manage)
         .invoke_handler(tauri::generate_handler![
             // System commands
             get_system_metrics,
