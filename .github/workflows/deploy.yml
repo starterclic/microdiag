@@ -2,15 +2,10 @@ name: Deploy to Server
 
 on:
   workflow_run:
-    workflows: ["Release"]
+    workflows: ["Release", "Build Windows"]
     types:
       - completed
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to deploy (e.g., v2.2.0)'
-        required: true
-        default: 'latest'
 
 jobs:
   deploy:
@@ -18,46 +13,102 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
-      - name: Download release assets (MSI)
-        uses: robinraju/release-downloader@v1
-        with:
-          repository: ${{ github.repository }}
-          latest: true
-          fileName: '*.msi'
-          out-file-path: 'release-assets'
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout for version info
+        uses: actions/checkout@v4
 
-      - name: Download release assets (EXE)
-        uses: robinraju/release-downloader@v1
-        with:
-          repository: ${{ github.repository }}
-          latest: true
-          fileName: '*.exe'
-          out-file-path: 'release-assets'
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
 
-      - name: Download signature files
-        uses: robinraju/release-downloader@v1
+      # Try to download from workflow artifacts first (Build Windows)
+      - name: Download artifacts from Build Windows
+        id: download-artifacts
+        uses: dawidd6/action-download-artifact@v3
         with:
-          repository: ${{ github.repository }}
-          latest: true
-          fileName: '*.sig'
-          out-file-path: 'release-assets'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: build-windows.yml
+          workflow_conclusion: success
+          name: MicrodiagSentinel-msi
+          path: release-assets
+          if_no_artifact_found: warn
         continue-on-error: true
 
-      - name: Download latest.json (updater manifest)
+      - name: Download EXE artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-windows.yml
+          workflow_conclusion: success
+          name: MicrodiagSentinel-exe
+          path: release-assets
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      # Fallback: download from GitHub Release if artifacts not found
+      - name: Download from Release (fallback)
+        if: steps.download-artifacts.outcome == 'failure'
         uses: robinraju/release-downloader@v1
         with:
           repository: ${{ github.repository }}
           latest: true
-          fileName: 'latest.json'
+          fileName: '*'
           out-file-path: 'release-assets'
           token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
       - name: List downloaded files
-        run: ls -la release-assets/
+        run: |
+          echo "=== Downloaded files ==="
+          ls -la release-assets/ || echo "No files found"
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+
+          # Find signature file
+          SIG_FILE=$(ls release-assets/*.sig 2>/dev/null | head -1 || echo "")
+          if [ -f "$SIG_FILE" ]; then
+            SIGNATURE=$(cat "$SIG_FILE")
+          else
+            SIGNATURE=""
+          fi
+
+          # Generate latest.json for Tauri updater
+          cat > release-assets/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "Microdiag Sentinel v$VERSION - Auto-deployed",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "$SIGNATURE",
+                "url": "https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_${VERSION}_x64_en-US.msi.zip"
+              }
+            }
+          }
+          EOF
+
+          echo "Generated latest.json:"
+          cat release-assets/latest.json
+
+      - name: Rename files with version
+        run: |
+          cd release-assets
+          VERSION="${{ steps.version.outputs.VERSION }}"
+
+          # Rename MSI if exists
+          for f in *.msi; do
+            [ -f "$f" ] && mv "$f" "MicrodiagSentinel_${VERSION}_x64_en-US.msi" 2>/dev/null || true
+          done
+
+          # Rename EXE if exists
+          for f in *setup*.exe; do
+            [ -f "$f" ] && mv "$f" "MicrodiagSentinel_${VERSION}_x64-setup.exe" 2>/dev/null || true
+          done
+
+          echo "=== Renamed files ==="
+          ls -la
 
       - name: Setup SSH
         run: |
@@ -66,28 +117,29 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy to Admin Server
+      - name: Deploy to servers
         run: |
-          scp -i ~/.ssh/deploy_key release-assets/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/Microdiag/admin/downloads/
+          VERSION="${{ steps.version.outputs.VERSION }}"
 
-      - name: Deploy to App Server
-        run: |
-          scp -i ~/.ssh/deploy_key release-assets/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/Microdiag/app/downloads/
+          # Upload all files
+          scp -i ~/.ssh/deploy_key release-assets/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/Microdiag/admin/downloads/ || true
+          scp -i ~/.ssh/deploy_key release-assets/* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/Microdiag/app/downloads/ || true
 
-      - name: Create symlinks and copy to public
-        run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+          # Create symlinks and update public site
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << ENDSSH
+          VERSION="$VERSION"
+
           # Admin downloads
           cd /opt/Microdiag/admin/downloads
-          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
-          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64_en-US.msi" MicrodiagSentinel_latest.msi 2>/dev/null || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64-setup.exe" MicrodiagSentinel_latest_setup.exe 2>/dev/null || true
 
           # App downloads
           cd /opt/Microdiag/app/downloads
-          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
-          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64_en-US.msi" MicrodiagSentinel_latest.msi 2>/dev/null || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64-setup.exe" MicrodiagSentinel_latest_setup.exe 2>/dev/null || true
 
-          # Public site downloads (for direct access)
+          # Public site
           mkdir -p /srv/microdiag/public/downloads
           cp /opt/Microdiag/app/downloads/*.msi /srv/microdiag/public/downloads/ 2>/dev/null || true
           cp /opt/Microdiag/app/downloads/*.exe /srv/microdiag/public/downloads/ 2>/dev/null || true
@@ -95,14 +147,12 @@ jobs:
           cp /opt/Microdiag/app/downloads/latest.json /srv/microdiag/public/downloads/ 2>/dev/null || true
 
           cd /srv/microdiag/public/downloads
-          ln -sf $(ls -t *.msi 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest.msi || true
-          ln -sf $(ls -t *setup*.exe 2>/dev/null | grep -v latest | head -1) MicrodiagSentinel_latest_setup.exe || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64_en-US.msi" MicrodiagSentinel_latest.msi 2>/dev/null || true
+          ln -sf "MicrodiagSentinel_\${VERSION}_x64-setup.exe" MicrodiagSentinel_latest_setup.exe 2>/dev/null || true
 
-          echo "Deploy complete! Files deployed to:"
-          echo "  - /opt/Microdiag/admin/downloads/"
-          echo "  - /opt/Microdiag/app/downloads/"
-          echo "  - /srv/microdiag/public/downloads/"
-          ls -la /srv/microdiag/public/downloads/
+          echo "✅ Deploy complete for v\${VERSION}"
+          echo "Files:"
+          ls -la /srv/microdiag/public/downloads/ | grep -E "(msi|exe|json)"
           ENDSSH
 
       - name: Cleanup
