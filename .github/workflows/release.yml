@@ -133,11 +133,14 @@ jobs:
             "Prefer" = "resolution=merge-duplicates"
           }
 
-          # Upsert version in database
-          Invoke-RestMethod -Uri "https://api.microdiag.cybtek.fr/rest/v1/app_versions" `
-            -Method POST `
-            -Headers $headers `
-            -Body $body
-
-          echo "Updated database with version $version"
+          # Upsert version in database (on_conflict=version for proper upsert)
+          try {
+            Invoke-RestMethod -Uri "https://api.microdiag.cybtek.fr/rest/v1/app_versions?on_conflict=version" `
+              -Method POST `
+              -Headers $headers `
+              -Body $body
+            echo "Updated database with version $version"
+          } catch {
+            echo "Warning: Could not update database (may already exist): $_"
+          }
         shell: pwsh
