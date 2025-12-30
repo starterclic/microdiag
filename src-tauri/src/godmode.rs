@@ -3,7 +3,7 @@
 // Native Windows Performance (No PowerShell)
 // ============================================
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 
 #[cfg(windows)]
@@ -628,14 +628,14 @@ pub fn apply_privacy_tweak(_tweak_id: &str, _enable: bool) -> TweakResult {
 pub async fn activate_ghost_mode() -> TweakResult {
     use std::process::Command;
 
-    let mut results = Vec::new();
+    let mut results: Vec<String> = Vec::new();
 
     // 1. Clear clipboard
     let _ = Command::new("cmd")
         .args(["/C", "echo off | clip"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
-    results.push("Presse-papier vidé");
+    results.push("Presse-papier vidé".into());
 
     // 2. Clear DNS cache
     let dns_result = Command::new("ipconfig")
@@ -643,7 +643,7 @@ pub async fn activate_ghost_mode() -> TweakResult {
         .creation_flags(CREATE_NO_WINDOW)
         .output();
     if dns_result.is_ok() {
-        results.push("Cache DNS vidé");
+        results.push("Cache DNS vidé".into());
     }
 
     // 3. Clear recent files (Explorer)
@@ -654,7 +654,7 @@ pub async fn activate_ghost_mode() -> TweakResult {
     if recent_path.exists() {
         let _ = std::fs::remove_dir_all(&recent_path);
         let _ = std::fs::create_dir_all(&recent_path);
-        results.push("Fichiers récents supprimés");
+        results.push("Fichiers récents supprimés".into());
     }
 
     // 4. Clear temp files
@@ -667,7 +667,7 @@ pub async fn activate_ghost_mode() -> TweakResult {
                 cleared += 1;
             }
         }
-        results.push(&format!("{} fichiers temp supprimés", cleared));
+        results.push(format!("{} fichiers temp supprimés", cleared));
     }
 
     // 5. Clear prefetch (requires admin)
@@ -675,7 +675,7 @@ pub async fn activate_ghost_mode() -> TweakResult {
         .args(["/C", "del /q /s C:\\Windows\\Prefetch\\*.pf 2>nul"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
-    results.push("Prefetch nettoyé");
+    results.push("Prefetch nettoyé".into());
 
     TweakResult {
         success: true,
