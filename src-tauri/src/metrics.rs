@@ -34,15 +34,20 @@ pub struct HealthScore {
 }
 
 impl SystemMetrics {
-    pub fn collect(sys: &mut System) -> Self {
-        // Only refresh what we need (FAST - ~200ms vs ~2s for refresh_all)
+    /// Refresh CPU metrics - call this in background thread
+    /// Must be called twice with 200ms+ delay between calls for accurate readings
+    pub fn refresh_cpu(sys: &mut System) {
         sys.refresh_cpu();
+    }
+
+    /// Collect metrics WITHOUT blocking - uses last known CPU value
+    /// CPU is refreshed in background by heartbeat loop
+    pub fn collect(sys: &mut System) -> Self {
+        // Refresh memory (instant - ~1ms)
         sys.refresh_memory();
 
-        // Small delay for CPU measurement accuracy (sysinfo needs 2 samples)
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        sys.refresh_cpu();
-
+        // CPU: just read cached values from last refresh
+        // The heartbeat loop refreshes CPU every 30s in background
         let cpus = sys.cpus();
         let cpu_usage = if cpus.is_empty() {
             0.0
