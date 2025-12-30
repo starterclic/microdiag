@@ -1,6 +1,6 @@
 // ============================================
-// MICRODIAG SENTINEL AGENT - v2.1.0
-// Production Ready
+// MICRODIAG SENTINEL AGENT - v2.3.0
+// Production Ready - Local-First Architecture
 // ============================================
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -8,10 +8,14 @@
 mod config;
 mod metrics;
 mod security;
+mod database;
+mod sync;
 
 use config::*;
 use metrics::*;
 use security::*;
+use database::{Database, LocalScript, LocalMetrics, ChatMessage};
+use sync::*;
 
 use serde::{Deserialize, Serialize};
 use sysinfo::System;
@@ -62,6 +66,7 @@ struct AppState {
     system: Mutex<System>,
     device_token: Mutex<String>,
     heartbeat_running: Mutex<bool>,
+    db: Arc<Database>,
 }
 
 // ============================================
@@ -237,6 +242,86 @@ async fn run_security_scan() -> Result<serde_json::Value, String> {
 }
 
 // ============================================
+// LOCAL-FIRST DATABASE COMMANDS
+// ============================================
+
+#[tauri::command]
+fn db_get_scripts(state: tauri::State<AppState>) -> Result<Vec<LocalScript>, String> {
+    state.db.get_all_scripts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_get_scripts_by_category(state: tauri::State<AppState>, category: String) -> Result<Vec<LocalScript>, String> {
+    state.db.get_scripts_by_category(&category).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_get_scripts_count(state: tauri::State<AppState>) -> Result<i32, String> {
+    state.db.get_scripts_count().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_save_metrics(state: tauri::State<AppState>, metrics: LocalMetrics) -> Result<i64, String> {
+    state.db.save_metrics(&metrics).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_get_recent_metrics(state: tauri::State<AppState>, limit: i32) -> Result<Vec<LocalMetrics>, String> {
+    state.db.get_recent_metrics(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_get_chat_history(state: tauri::State<AppState>, limit: i32) -> Result<Vec<ChatMessage>, String> {
+    state.db.get_chat_history(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_add_chat_message(state: tauri::State<AppState>, role: String, content: String) -> Result<i64, String> {
+    state.db.add_chat_message(&role, &content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_clear_chat(state: tauri::State<AppState>) -> Result<(), String> {
+    state.db.clear_chat_history().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_get_setting(state: tauri::State<AppState>, key: String) -> Result<Option<String>, String> {
+    state.db.get_setting(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_set_setting(state: tauri::State<AppState>, key: String, value: String) -> Result<(), String> {
+    state.db.set_setting(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn db_sync_scripts(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    sync_scripts_from_supabase(&state.db).await
+}
+
+#[tauri::command]
+async fn db_check_online() -> Result<bool, String> {
+    Ok(check_online_status().await)
+}
+
+#[tauri::command]
+async fn db_check_remote_executions(state: tauri::State<'_, AppState>) -> Result<Vec<RemoteExecution>, String> {
+    let device_token = state.device_token.lock().unwrap().clone();
+    check_remote_executions(&state.db, &device_token).await
+}
+
+#[tauri::command]
+async fn db_update_remote_execution(
+    id: String,
+    status: String,
+    output: Option<String>,
+    error: Option<String>,
+) -> Result<(), String> {
+    update_remote_execution(&id, &status, output.as_deref(), error.as_deref()).await
+}
+
+// ============================================
 // HEARTBEAT
 // ============================================
 async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus) -> Result<(), String> {
@@ -404,13 +489,22 @@ fn main() {
 
     let system_tray = SystemTray::new().with_menu(tray_menu);
 
+    // Initialize Local-First SQLite database
+    let db = Arc::new(Database::new().expect("Failed to initialize database"));
+    println!("[Microdiag] SQLite database initialized");
+
     // Load or create persistent device token
     let device_token = load_or_create_device_token();
 
+    // Create shared state with database
+    let db_for_state = Arc::clone(&db);
+    let db_for_sync = Arc::clone(&db);
+
     let state = Arc::new(AppState {
         system: Mutex::new(System::new_all()),
-        device_token: Mutex::new(device_token),
+        device_token: Mutex::new(device_token.clone()),
         heartbeat_running: Mutex::new(true),
+        db: db_for_state,
     });
 
     let state_heartbeat = Arc::clone(&state);
@@ -422,6 +516,10 @@ fn main() {
             let handle = app.handle();
             start_heartbeat_loop(handle.clone(), Arc::clone(&state_heartbeat));
             start_command_loop(Arc::clone(&state_commands));
+
+            // Start background sync with Supabase
+            start_sync_loop(Arc::clone(&db_for_sync));
+            println!("[Microdiag] Background sync started");
 
             // Force window to front after startup (improved for Windows)
             let window = app.get_window("main").unwrap();
@@ -435,7 +533,7 @@ fn main() {
                 let _ = window.set_always_on_top(false);
             });
 
-            println!("[Microdiag] Agent v{} started", AGENT_VERSION);
+            println!("[Microdiag] Agent v{} started (Local-First)", AGENT_VERSION);
             Ok(())
         })
         .on_system_tray_event(|app, event| {
@@ -468,8 +566,10 @@ fn main() {
             system: Mutex::new(System::new_all()),
             device_token: Mutex::new(load_or_create_device_token()),
             heartbeat_running: Mutex::new(true),
+            db: Arc::clone(&db),
         })
         .invoke_handler(tauri::generate_handler![
+            // System commands
             get_system_metrics,
             get_health_score,
             get_security_status,
@@ -477,6 +577,21 @@ fn main() {
             run_script,
             send_notification,
             run_security_scan,
+            // Local-First database commands
+            db_get_scripts,
+            db_get_scripts_by_category,
+            db_get_scripts_count,
+            db_save_metrics,
+            db_get_recent_metrics,
+            db_get_chat_history,
+            db_add_chat_message,
+            db_clear_chat,
+            db_get_setting,
+            db_set_setting,
+            db_sync_scripts,
+            db_check_online,
+            db_check_remote_executions,
+            db_update_remote_execution,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

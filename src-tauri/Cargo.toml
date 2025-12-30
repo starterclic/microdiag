@@ -21,6 +21,9 @@ chrono = "0.4"
 uuid = { version = "1.0", features = ["v4"] }
 tempfile = "3.10"
 dirs = "5.0"
+# Local-First SQLite
+rusqlite = { version = "0.31", features = ["bundled"] }
+tauri-plugin-sql = { version = "1.0", features = ["sqlite"] }
 
 [features]
 default = ["custom-protocol"]
