@@ -58,12 +58,7 @@
       "wix": null,
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "headerImage": null,
-        "sidebarImage": null,
-        "license": null,
-        "installMode": "currentUser",
-        "languages": ["French"],
-        "displayLanguageSelector": false
+        "installMode": "currentUser"
       }
     }
   },
