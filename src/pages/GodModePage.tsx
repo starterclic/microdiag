@@ -1,0 +1,597 @@
+// ============================================
+// MICRODIAG SENTINEL - GOD MODE PAGE
+// Advanced System Control & Optimization
+// ============================================
+
+import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
+import * as godmode from '../services/godmode';
+import type {
+  InstalledApp,
+  StartupItem,
+  DeepHealth,
+  OutdatedApp,
+  RegBackup,
+} from '../services/godmode';
+
+interface GodModePageProps {
+  metrics: {
+    cpu_usage: number;
+    memory_percent: number;
+    memory_total: number;
+    memory_used: number;
+    disks: Array<{ name: string; total_gb: number; free_gb: number; percent: number }>;
+  } | null;
+}
+
+type GodModeTab = 'monitor' | 'apps' | 'startup' | 'updates' | 'privacy' | 'install';
+
+export function GodModePage({ metrics }: GodModePageProps) {
+  const [activeTab, setActiveTab] = useState<GodModeTab>('monitor');
+  const [deepHealth, setDeepHealth] = useState<DeepHealth | null>(null);
+  const [apps, setApps] = useState<InstalledApp[]>([]);
+  const [startupItems, setStartupItems] = useState<StartupItem[]>([]);
+  const [updates, setUpdates] = useState<OutdatedApp[]>([]);
+  const [backups, setBackups] = useState<RegBackup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedInstallApps, setSelectedInstallApps] = useState<Set<string>>(new Set());
+  const [installing, setInstalling] = useState(false);
+  const [tweakStates, setTweakStates] = useState<Record<string, boolean>>({});
+
+  // Load initial data
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [health, appList, startup] = await Promise.all([
+          godmode.getDeepHealth(),
+          godmode.getInstalledApps(),
+          godmode.getStartupItems(),
+        ]);
+        setDeepHealth(health);
+        setApps(appList);
+        setStartupItems(startup);
+      } catch (e) {
+        console.error('Error loading God Mode data:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Calculate health score
+  const healthScore = metrics && deepHealth
+    ? godmode.calculateHealthScore(
+        metrics.cpu_usage,
+        metrics.memory_percent,
+        metrics.disks[0]?.percent ? 100 - metrics.disks[0].percent : 50,
+        deepHealth
+      )
+    : 0;
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-400';
+    if (score >= 50) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const formatBytes = (bytes: number) => {
+    const gb = bytes / 1073741824;
+    return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1048576).toFixed(0)} MB`;
+  };
+
+  // Handlers
+  const handleCheckUpdates = async () => {
+    toast.info('Recherche des mises a jour...');
+    try {
+      const result = await godmode.checkUpdates();
+      setUpdates(result);
+      toast.success(`${result.length} mises a jour disponibles`);
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    toast.info('Mise a jour en cours...');
+    try {
+      const result = await godmode.updateAllApps();
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleDisableStartup = async (item: StartupItem) => {
+    try {
+      const result = await godmode.disableStartupItem(item.name, item.location);
+      if (result.success) {
+        toast.success(result.message);
+        setStartupItems(prev => prev.filter(i => i.name !== item.name));
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleApplyTweak = async (tweakId: string, enable: boolean) => {
+    try {
+      const result = await godmode.applyTweak(tweakId, enable);
+      if (result.success) {
+        toast.success(result.message);
+        setTweakStates(prev => ({ ...prev, [tweakId]: !enable }));
+        // Refresh backups
+        const newBackups = await godmode.listBackups();
+        setBackups(newBackups);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleGhostMode = async () => {
+    toast.info('Activation Ghost Mode...');
+    try {
+      const result = await godmode.activateGhostMode();
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleBulkInstall = async () => {
+    if (selectedInstallApps.size === 0) return;
+    setInstalling(true);
+    toast.info(`Installation de ${selectedInstallApps.size} applications...`);
+    try {
+      const result = await godmode.installApps(Array.from(selectedInstallApps));
+      if (result.success) {
+        toast.success(result.message);
+        setSelectedInstallApps(new Set());
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const handleRestoreBackup = async (backup: RegBackup) => {
+    try {
+      const result = await godmode.restoreBackup(backup.path);
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    }
+  };
+
+  const toggleAppSelection = (id: string) => {
+    const newSet = new Set(selectedInstallApps);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedInstallApps(newSet);
+  };
+
+  const filteredApps = apps.filter(app =>
+    app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    app.publisher.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const tabs: Array<{ id: GodModeTab; label: string; icon: string }> = [
+    { id: 'monitor', label: 'Monitoring', icon: '📊' },
+    { id: 'apps', label: 'Applications', icon: '📦' },
+    { id: 'startup', label: 'Demarrage', icon: '🚀' },
+    { id: 'updates', label: 'Mises a jour', icon: '🔄' },
+    { id: 'privacy', label: 'Privacy', icon: '🛡️' },
+    { id: 'install', label: 'Installateur', icon: '📥' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="page god-mode-page">
+        <div className="loading-state">
+          <div className="spinner"></div>
+          <p>Chargement God Mode...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page god-mode-page">
+      {/* Header */}
+      <div className="page-header gm-header">
+        <div className="gm-title">
+          <h1>GOD MODE</h1>
+          <span className="gm-subtitle">Controle Systeme Avance</span>
+        </div>
+        <div className="gm-score">
+          <span className="score-label">Health Score</span>
+          <span className={`score-value ${getScoreColor(healthScore)}`}>{healthScore}</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="gm-tabs">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`gm-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span className="tab-icon">{tab.icon}</span>
+            <span className="tab-label">{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="gm-content">
+        {/* MONITORING TAB */}
+        {activeTab === 'monitor' && metrics && (
+          <div className="gm-monitor">
+            <div className="monitor-grid">
+              {/* CPU */}
+              <div className="monitor-card">
+                <div className="card-header">
+                  <span className="card-icon">💻</span>
+                  <span className="card-title">CPU</span>
+                </div>
+                <div className="card-value">{metrics.cpu_usage.toFixed(1)}%</div>
+                <div className="progress-bar">
+                  <div
+                    className={`progress-fill ${metrics.cpu_usage > 80 ? 'danger' : metrics.cpu_usage > 50 ? 'warning' : 'success'}`}
+                    style={{ width: `${metrics.cpu_usage}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* RAM */}
+              <div className="monitor-card">
+                <div className="card-header">
+                  <span className="card-icon">🧠</span>
+                  <span className="card-title">Memoire</span>
+                </div>
+                <div className="card-value">{metrics.memory_percent.toFixed(1)}%</div>
+                <div className="card-detail">
+                  {formatBytes(metrics.memory_used * 1024)} / {formatBytes(metrics.memory_total * 1024)}
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className={`progress-fill ${metrics.memory_percent > 80 ? 'danger' : metrics.memory_percent > 60 ? 'warning' : 'success'}`}
+                    style={{ width: `${metrics.memory_percent}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Disk */}
+              {metrics.disks[0] && (
+                <div className="monitor-card">
+                  <div className="card-header">
+                    <span className="card-icon">💾</span>
+                    <span className="card-title">Disque</span>
+                  </div>
+                  <div className="card-value">{metrics.disks[0].free_gb.toFixed(1)} GB libre</div>
+                  <div className="card-detail">
+                    Sur {metrics.disks[0].total_gb.toFixed(0)} GB total
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className={`progress-fill ${metrics.disks[0].percent > 90 ? 'danger' : metrics.disks[0].percent > 70 ? 'warning' : 'success'}`}
+                      style={{ width: `${metrics.disks[0].percent}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Battery */}
+              {deepHealth?.battery.is_present && (
+                <div className="monitor-card">
+                  <div className="card-header">
+                    <span className="card-icon">🔋</span>
+                    <span className="card-title">Batterie</span>
+                  </div>
+                  <div className="card-value">{deepHealth.battery.charge_percent}%</div>
+                  <div className="card-detail">
+                    Sante: {deepHealth.battery.health_percent}% - {deepHealth.battery.status}
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className={`progress-fill ${deepHealth.battery.charge_percent < 20 ? 'danger' : 'success'}`}
+                      style={{ width: `${deepHealth.battery.charge_percent}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Deep Health Info */}
+            {deepHealth && (
+              <div className="deep-health-info">
+                <h3>Informations Systeme</h3>
+                <div className="info-grid">
+                  <div className="info-item">
+                    <span className="info-label">PC</span>
+                    <span className="info-value">{deepHealth.computer_name}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">OS</span>
+                    <span className="info-value">{deepHealth.windows_version}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">BIOS</span>
+                    <span className="info-value">{deepHealth.bios_manufacturer} {deepHealth.bios_version}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Serial</span>
+                    <span className="info-value">{deepHealth.bios_serial}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">Disque</span>
+                    <span className="info-value">{deepHealth.disk_model}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="info-label">SMART</span>
+                    <span className={`info-value ${deepHealth.disk_smart_status === 'OK' ? 'text-green' : 'text-red'}`}>
+                      {deepHealth.disk_smart_status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* APPLICATIONS TAB */}
+        {activeTab === 'apps' && (
+          <div className="gm-apps">
+            <div className="apps-header">
+              <div className="apps-count">{apps.length} applications installees</div>
+              <input
+                type="text"
+                placeholder="Rechercher..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="apps-search"
+              />
+            </div>
+            <div className="apps-list">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nom</th>
+                    <th>Version</th>
+                    <th>Editeur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredApps.slice(0, 100).map((app, i) => (
+                    <tr key={i}>
+                      <td className="app-name">{app.name}</td>
+                      <td className="app-version">{app.version || '-'}</td>
+                      <td className="app-publisher">{app.publisher || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredApps.length > 100 && (
+                <div className="apps-more">
+                  Et {filteredApps.length - 100} autres...
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* STARTUP TAB */}
+        {activeTab === 'startup' && (
+          <div className="gm-startup">
+            <div className="startup-header">
+              <h3>Programmes au Demarrage</h3>
+              <span className="startup-count">{startupItems.length} elements</span>
+            </div>
+            <div className="startup-list">
+              {startupItems.map((item, i) => (
+                <div key={i} className="startup-item">
+                  <div className="startup-info">
+                    <div className="startup-name">{item.name}</div>
+                    <div className="startup-location">{item.location}</div>
+                    <div className="startup-command">{item.command}</div>
+                  </div>
+                  <button
+                    className="btn-danger-small"
+                    onClick={() => handleDisableStartup(item)}
+                  >
+                    Desactiver
+                  </button>
+                </div>
+              ))}
+              {startupItems.length === 0 && (
+                <div className="empty-state">Aucun programme au demarrage</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* UPDATES TAB */}
+        {activeTab === 'updates' && (
+          <div className="gm-updates">
+            <div className="updates-header">
+              <h3>Mises a jour Logicielles (Winget)</h3>
+              <div className="updates-actions">
+                <button className="btn-secondary" onClick={handleCheckUpdates}>
+                  🔍 Rechercher
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={handleUpdateAll}
+                  disabled={updates.length === 0}
+                >
+                  🔄 Tout Mettre a Jour
+                </button>
+              </div>
+            </div>
+            <div className="updates-list">
+              {updates.length === 0 ? (
+                <div className="empty-state">
+                  Cliquez sur "Rechercher" pour verifier les mises a jour
+                </div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Application</th>
+                      <th>Version Actuelle</th>
+                      <th>Nouvelle Version</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {updates.map((app, i) => (
+                      <tr key={i}>
+                        <td>{app.name}</td>
+                        <td>{app.current_version}</td>
+                        <td className="text-green">{app.available_version}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* PRIVACY TAB */}
+        {activeTab === 'privacy' && (
+          <div className="gm-privacy">
+            <div className="privacy-header">
+              <h3>Tweaks Privacy & Performance</h3>
+              <button className="btn-danger" onClick={handleGhostMode}>
+                👻 Ghost Mode
+              </button>
+            </div>
+
+            <div className="tweaks-grid">
+              {godmode.PRIVACY_TWEAKS.map(tweak => (
+                <div key={tweak.id} className="tweak-card">
+                  <div className="tweak-info">
+                    <div className="tweak-name">{tweak.name}</div>
+                    <div className="tweak-desc">{tweak.description}</div>
+                    <div className={`tweak-risk risk-${tweak.risk}`}>
+                      Risque: {tweak.risk}
+                    </div>
+                  </div>
+                  <button
+                    className={`tweak-toggle ${tweakStates[tweak.id] ? 'active' : ''}`}
+                    onClick={() => handleApplyTweak(tweak.id, tweakStates[tweak.id] || false)}
+                  >
+                    {tweakStates[tweak.id] ? 'Reactiver' : 'Desactiver'}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Backups */}
+            <div className="backups-section">
+              <h4>Sauvegardes Registre</h4>
+              <div className="backups-list">
+                {backups.length === 0 ? (
+                  <div className="empty-state">Aucune sauvegarde</div>
+                ) : (
+                  backups.slice(0, 10).map((backup, i) => (
+                    <div key={i} className="backup-item">
+                      <div className="backup-info">
+                        <div className="backup-name">{backup.name}</div>
+                        <div className="backup-date">{backup.created_at}</div>
+                      </div>
+                      <button
+                        className="btn-secondary-small"
+                        onClick={() => handleRestoreBackup(backup)}
+                      >
+                        Restaurer
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* INSTALL TAB */}
+        {activeTab === 'install' && (
+          <div className="gm-install">
+            <div className="install-header">
+              <div>
+                <h3>Installateur Rapide (Winget)</h3>
+                <p className="install-subtitle">
+                  Selectionnez les applications a installer en un clic
+                </p>
+              </div>
+              <button
+                className="btn-primary btn-large"
+                onClick={handleBulkInstall}
+                disabled={selectedInstallApps.size === 0 || installing}
+              >
+                {installing ? (
+                  <>⏳ Installation...</>
+                ) : (
+                  <>📥 Installer ({selectedInstallApps.size})</>
+                )}
+              </button>
+            </div>
+
+            <div className="install-categories">
+              {Object.entries(godmode.RECOMMENDED_APPS).map(([category, appList]) => (
+                <div key={category} className="install-category">
+                  <h4>{category}</h4>
+                  <div className="install-apps">
+                    {appList.map(app => {
+                      const isSelected = selectedInstallApps.has(app.id);
+                      return (
+                        <div
+                          key={app.id}
+                          className={`install-app ${isSelected ? 'selected' : ''}`}
+                          onClick={() => !installing && toggleAppSelection(app.id)}
+                        >
+                          <div className="install-checkbox">
+                            {isSelected ? '✓' : ''}
+                          </div>
+                          <div className="install-app-info">
+                            <div className="install-app-name">{app.name}</div>
+                            <div className="install-app-desc">{app.desc}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

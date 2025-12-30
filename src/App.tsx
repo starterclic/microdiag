@@ -21,7 +21,7 @@ import * as localDb from './services/localDb';
 import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
 
 // Pages
-import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage } from './pages';
+import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage } from './pages';
 
 // Scan steps timing (10 steps)
 const SCAN_STEP_DURATION = 1500;
@@ -672,6 +672,10 @@ function App() {
             onCheckUpdates={checkForUpdates}
             onRestartTutorial={() => setShowOnboarding(true)}
           />
+        )}
+
+        {currentPage === 'godmode' && (
+          <GodModePage metrics={metrics} />
         )}
       </main>
 

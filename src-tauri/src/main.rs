@@ -10,6 +10,7 @@ mod metrics;
 mod security;
 mod database;
 mod sync;
+mod godmode;
 
 use config::*;
 use metrics::*;
@@ -322,6 +323,65 @@ async fn db_update_remote_execution(
 }
 
 // ============================================
+// GOD MODE COMMANDS (Native Performance)
+// ============================================
+
+#[tauri::command]
+fn gm_get_installed_apps() -> Vec<godmode::InstalledApp> {
+    godmode::get_installed_apps_native()
+}
+
+#[tauri::command]
+fn gm_get_deep_health() -> godmode::DeepHealth {
+    godmode::get_deep_health()
+}
+
+#[tauri::command]
+fn gm_get_startup_items() -> Vec<godmode::StartupItem> {
+    godmode::get_startup_items()
+}
+
+#[tauri::command]
+fn gm_disable_startup_item(name: String, location: String) -> godmode::TweakResult {
+    godmode::disable_startup_item(&name, &location)
+}
+
+#[tauri::command]
+async fn gm_check_updates() -> Vec<godmode::OutdatedApp> {
+    godmode::check_winget_updates().await
+}
+
+#[tauri::command]
+async fn gm_install_apps(app_ids: Vec<String>) -> godmode::TweakResult {
+    godmode::install_winget_apps(app_ids).await
+}
+
+#[tauri::command]
+async fn gm_update_all() -> godmode::TweakResult {
+    godmode::update_all_winget().await
+}
+
+#[tauri::command]
+fn gm_apply_tweak(tweak_id: String, enable: bool) -> godmode::TweakResult {
+    godmode::apply_privacy_tweak(&tweak_id, enable)
+}
+
+#[tauri::command]
+async fn gm_ghost_mode() -> godmode::TweakResult {
+    godmode::activate_ghost_mode().await
+}
+
+#[tauri::command]
+fn gm_list_backups() -> Vec<godmode::RegBackup> {
+    godmode::list_backups()
+}
+
+#[tauri::command]
+fn gm_restore_backup(backup_path: String) -> godmode::TweakResult {
+    godmode::restore_backup(&backup_path)
+}
+
+// ============================================
 // HEARTBEAT
 // ============================================
 async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus) -> Result<(), String> {
@@ -592,6 +652,18 @@ fn main() {
             db_check_online,
             db_check_remote_executions,
             db_update_remote_execution,
+            // God Mode commands (Native Performance)
+            gm_get_installed_apps,
+            gm_get_deep_health,
+            gm_get_startup_items,
+            gm_disable_startup_item,
+            gm_check_updates,
+            gm_install_apps,
+            gm_update_all,
+            gm_apply_tweak,
+            gm_ghost_mode,
+            gm_list_backups,
+            gm_restore_backup,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

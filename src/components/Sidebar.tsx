@@ -16,6 +16,7 @@ interface SidebarProps {
 const NAV_ITEMS = [
   { page: 'dashboard' as Page, icon: '📊', label: 'Tableau de bord' },
   { page: 'tools' as Page, icon: '🧰', label: 'Boîte à Outils' },
+  { page: 'godmode' as Page, icon: '⚡', label: 'God Mode' },
   { page: 'scan' as Page, icon: '🔍', label: 'Rapport Sécurité' },
   { page: 'chat' as Page, icon: '💬', label: 'Assistant IA' },
   { page: 'settings' as Page, icon: '⚙️', label: 'Paramètres' },
