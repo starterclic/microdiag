@@ -3,7 +3,7 @@
 // Version 2.0.0
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import './styles/index.css';
@@ -72,13 +72,17 @@ function App() {
   const [scanReport, setScanReport] = useState<ScanReport | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  // Memoized page setter to prevent child re-renders
+  const handleSetCurrentPage = useCallback((page: Page) => setCurrentPage(page), []);
+  const handleGoToTools = useCallback(() => setCurrentPage('tools'), []);
+  const handleShowUrgency = useCallback(() => setShowUrgency(true), []);
+
   // ==========================================
   // DATA FETCHING
   // ==========================================
   const fetchData = useCallback(async () => {
     try {
       setLoadingStep(1);
-      await new Promise(r => setTimeout(r, 400));
 
       setLoadingStep(2);
       const [metricsData, healthData, securityData, tokenData] = await Promise.all([
@@ -89,15 +93,14 @@ function App() {
       ]);
 
       setLoadingStep(3);
-      await new Promise(r => setTimeout(r, 300));
-
       setMetrics(metricsData);
       setHealth(healthData);
       setSecurity(securityData);
       setDeviceToken(tokenData);
 
       setLoadingStep(4);
-      await new Promise(r => setTimeout(r, 500));
+      // Minimal delay for visual feedback
+      await new Promise(r => setTimeout(r, 200));
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -442,7 +445,7 @@ function App() {
 
   return (
     <div className="app-container">
-      <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} health={health} />
+      <Sidebar currentPage={currentPage} setCurrentPage={handleSetCurrentPage} health={health} />
 
       <main className="main-content">
         {currentPage === 'dashboard' && (
@@ -452,8 +455,8 @@ function App() {
             actionRunning={actionRunning}
             onRefresh={fetchData}
             onQuickAction={runQuickAction}
-            onGoToTools={() => setCurrentPage('tools')}
-            onShowUrgency={() => setShowUrgency(true)}
+            onGoToTools={handleGoToTools}
+            onShowUrgency={handleShowUrgency}
           />
         )}
 

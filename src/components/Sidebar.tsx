@@ -1,9 +1,9 @@
 // ============================================
 // MICRODIAG SENTINEL - Sidebar Component
-// Collapsible sidebar with icons
+// Collapsible sidebar with icons (optimized)
 // ============================================
 
-import { useState } from 'react';
+import { useState, memo, useCallback } from 'react';
 import { Page, HealthScore } from '../types';
 import { APP_VERSION } from '../constants';
 
@@ -21,8 +21,11 @@ const NAV_ITEMS = [
   { page: 'settings' as Page, icon: '⚙️', label: 'Paramètres' },
 ];
 
-export function Sidebar({ currentPage, setCurrentPage, health }: SidebarProps) {
+function SidebarComponent({ currentPage, setCurrentPage, health }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const handleMouseEnter = useCallback(() => setIsExpanded(true), []);
+  const handleMouseLeave = useCallback(() => setIsExpanded(false), []);
 
   const statusColor =
     health?.status === 'online' || health?.status === 'healthy'
@@ -41,8 +44,8 @@ export function Sidebar({ currentPage, setCurrentPage, health }: SidebarProps) {
   return (
     <aside
       className={`sidebar ${isExpanded ? 'expanded' : 'collapsed'}`}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="sidebar-header">
         <div className="logo-icon">M</div>
@@ -73,3 +76,6 @@ export function Sidebar({ currentPage, setCurrentPage, health }: SidebarProps) {
     </aside>
   );
 }
+
+// Memoized to prevent unnecessary re-renders
+export const Sidebar = memo(SidebarComponent);

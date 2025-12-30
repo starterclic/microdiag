@@ -423,13 +423,15 @@ fn main() {
             start_heartbeat_loop(handle.clone(), Arc::clone(&state_heartbeat));
             start_command_loop(Arc::clone(&state_commands));
 
-            // Force window to front after startup
+            // Force window to front after startup (improved for Windows)
             let window = app.get_window("main").unwrap();
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = window.set_focus();
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = window.show();
+                let _ = window.unminimize();
                 let _ = window.set_always_on_top(true);
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                let _ = window.set_focus();
+                std::thread::sleep(std::time::Duration::from_millis(200));
                 let _ = window.set_always_on_top(false);
             });
 
