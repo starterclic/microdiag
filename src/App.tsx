@@ -113,7 +113,8 @@ function App() {
       setLoadingStep(1);
 
       setLoadingStep(2);
-      const [metricsData, healthData, securityData, tokenData] = await Promise.all([
+      // Fetch data independently - don't let one failure block others
+      const [metricsResult, healthResult, securityResult, tokenResult] = await Promise.allSettled([
         invoke<SystemMetrics>('get_system_metrics'),
         invoke<HealthScore>('get_health_score'),
         invoke<SecurityStatus>('get_security_status'),
@@ -121,10 +122,40 @@ function App() {
       ]);
 
       setLoadingStep(3);
-      setMetrics(metricsData);
-      setHealth(healthData);
-      setSecurity(securityData);
-      setDeviceToken(tokenData);
+
+      // Apply results with fallbacks
+      if (metricsResult.status === 'fulfilled') {
+        setMetrics(metricsResult.value);
+      } else {
+        console.error('Metrics error:', metricsResult.reason);
+        // Fallback metrics for offline display
+        setMetrics({
+          cpu_usage: 0, memory_total: 0, memory_used: 0, memory_percent: 0,
+          disks: [], hostname: 'Inconnu', os_version: ''
+        });
+      }
+
+      if (healthResult.status === 'fulfilled') {
+        setHealth(healthResult.value);
+      } else {
+        console.error('Health error:', healthResult.reason);
+        // Fallback health score
+        setHealth({ score: 0, status: 'unknown', issues: ['Erreur de chargement'] });
+      }
+
+      if (securityResult.status === 'fulfilled') {
+        setSecurity(securityResult.value);
+      } else {
+        console.error('Security error:', securityResult.reason);
+        // Fallback - security check failed but don't block UI
+        setSecurity({ antivirus_enabled: false, realtime_protection: false, firewall_enabled: false, last_scan_days: -1, definitions_age_days: -1, issues: ['Vérification impossible'] });
+      }
+
+      if (tokenResult.status === 'fulfilled') {
+        setDeviceToken(tokenResult.value);
+      } else {
+        console.error('Token error:', tokenResult.reason);
+      }
 
       setLoadingStep(4);
       // Minimal delay for visual feedback
