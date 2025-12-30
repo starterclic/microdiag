@@ -11,6 +11,7 @@ interface SettingsPageProps {
   deviceToken: string;
   updateChecking: boolean;
   onCheckUpdates: () => void;
+  onRestartTutorial?: () => void;
 }
 
 export function SettingsPage({
@@ -19,6 +20,7 @@ export function SettingsPage({
   deviceToken,
   updateChecking,
   onCheckUpdates,
+  onRestartTutorial,
 }: SettingsPageProps) {
   return (
     <div className="page settings-page">
@@ -81,6 +83,19 @@ export function SettingsPage({
               disabled={updateChecking}
             >
               {updateChecking ? 'Verification...' : 'Verifier les mises a jour'}
+            </button>
+          </div>
+        </section>
+
+        <section className="setting-group">
+          <h3>Aide</h3>
+          <div className="update-actions">
+            <button
+              className="update-btn"
+              onClick={onRestartTutorial}
+              style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }}
+            >
+              Revoir le tutoriel
             </button>
           </div>
         </section>

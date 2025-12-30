@@ -92,3 +92,25 @@ export interface ScanReport {
 }
 
 export type Page = 'dashboard' | 'tools' | 'chat' | 'settings' | 'scan';
+
+export interface RemoteExecution {
+  id: string;
+  script_id: string;
+  device_id: string;
+  requested_by: string;
+  status: 'pending' | 'authorized' | 'running' | 'completed' | 'failed' | 'rejected' | 'expired';
+  authorization_token: string;
+  authorization_expires_at: string;
+  created_at: string;
+  script_library?: {
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    category: string;
+    risk_level: string;
+    code: string;
+    requires_admin: boolean;
+    icon: string;
+  };
+}

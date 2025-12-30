@@ -9,11 +9,11 @@ import { listen } from '@tauri-apps/api/event';
 import './styles/index.css';
 
 // Types & Constants
-import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport } from './types';
+import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY_TIPS, STARTUP_STEPS } from './constants';
 
 // Components
-import { Sidebar, ScriptLoaderModal, UpdateModal } from './components';
+import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial } from './components';
 
 // Pages
 import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage } from './pages';
@@ -71,6 +71,26 @@ function App() {
   const [scanProgress, setScanProgress] = useState(0);
   const [scanReport, setScanReport] = useState<ScanReport | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+
+  // Remote execution state
+  const [pendingExecution, setPendingExecution] = useState<RemoteExecution | null>(null);
+  const [executionLoading, setExecutionLoading] = useState(false);
+
+  // Onboarding state
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    return !localStorage.getItem('microdiag_onboarding_complete');
+  });
+
+  // Onboarding handlers
+  const handleOnboardingComplete = useCallback(() => {
+    localStorage.setItem('microdiag_onboarding_complete', 'true');
+    setShowOnboarding(false);
+  }, []);
+
+  const handleOnboardingSkip = useCallback(() => {
+    localStorage.setItem('microdiag_onboarding_complete', 'true');
+    setShowOnboarding(false);
+  }, []);
 
   // Memoized page setter to prevent child re-renders
   const handleSetCurrentPage = useCallback((page: Page) => setCurrentPage(page), []);
@@ -181,6 +201,154 @@ function App() {
         setActionRunning(null);
         setTimeout(() => setActionResult(null), 5000);
       }
+    }
+  };
+
+  // ==========================================
+  // REMOTE EXECUTION
+  // ==========================================
+  const checkRemoteExecutions = useCallback(async () => {
+    if (!deviceToken || pendingExecution) return;
+
+    try {
+      // Get device ID first
+      const deviceResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/devices?device_token=eq.${deviceToken}&select=id`,
+        { headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY } }
+      );
+      const devices = await deviceResponse.json();
+      if (!devices || devices.length === 0) return;
+
+      const deviceId = devices[0].id;
+
+      // Check for pending executions
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/remote_executions?device_id=eq.${deviceId}&status=eq.pending&select=*,script_library(*)&order=created_at.desc&limit=1`,
+        { headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY } }
+      );
+      const executions = await response.json();
+
+      if (executions && executions.length > 0) {
+        const exec = executions[0];
+        // Check if not expired
+        const expiresAt = new Date(exec.authorization_expires_at);
+        if (expiresAt > new Date()) {
+          setPendingExecution(exec);
+          // Show notification
+          await invoke('send_notification', {
+            title: 'Demande d\'exécution à distance',
+            body: `${exec.script_library?.name || 'Script'} - Cliquez pour autoriser ou refuser`
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error checking remote executions:', error);
+    }
+  }, [deviceToken, pendingExecution]);
+
+  const handleAcceptExecution = async () => {
+    if (!pendingExecution) return;
+    setExecutionLoading(true);
+
+    try {
+      // Update status to authorized
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/remote_executions?id=eq.${pendingExecution.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ status: 'running', started_at: new Date().toISOString() }),
+        }
+      );
+
+      // Execute the script
+      const script = pendingExecution.script_library;
+      if (script) {
+        try {
+          const output = await invoke<string>('run_script', {
+            scriptId: script.slug,
+            code: script.code,
+            language: 'powershell',
+          });
+
+          // Update status to completed
+          await fetch(
+            `${SUPABASE_URL}/rest/v1/remote_executions?id=eq.${pendingExecution.id}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                apikey: SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({
+                status: 'completed',
+                completed_at: new Date().toISOString(),
+                output: output.substring(0, 10000), // Limit output size
+              }),
+            }
+          );
+
+          await invoke('send_notification', {
+            title: 'Script exécuté',
+            body: `${script.name} terminé avec succès`,
+          });
+        } catch (error) {
+          // Update status to failed
+          await fetch(
+            `${SUPABASE_URL}/rest/v1/remote_executions?id=eq.${pendingExecution.id}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                apikey: SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                error: String(error),
+              }),
+            }
+          );
+        }
+      }
+
+      setPendingExecution(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error accepting execution:', error);
+    } finally {
+      setExecutionLoading(false);
+    }
+  };
+
+  const handleRejectExecution = async () => {
+    if (!pendingExecution) return;
+    setExecutionLoading(true);
+
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/remote_executions?id=eq.${pendingExecution.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ status: 'rejected' }),
+        }
+      );
+      setPendingExecution(null);
+    } catch (error) {
+      console.error('Error rejecting execution:', error);
+    } finally {
+      setExecutionLoading(false);
     }
   };
 
@@ -396,9 +564,13 @@ function App() {
     // Auto-check for updates on startup
     setTimeout(() => checkForUpdates(), 3000);
     const interval = setInterval(fetchData, 30000);
+    // Poll for remote executions every 10 seconds
+    const execInterval = setInterval(checkRemoteExecutions, 10000);
+    // Initial check after 5 seconds
+    setTimeout(checkRemoteExecutions, 5000);
     const unlisten = listen('run-scan', fetchData);
-    return () => { clearInterval(interval); unlisten.then((fn) => fn()); };
-  }, [fetchData, fetchScripts]);
+    return () => { clearInterval(interval); clearInterval(execInterval); unlisten.then((fn) => fn()); };
+  }, [fetchData, fetchScripts, checkRemoteExecutions]);
 
   // ==========================================
   // RENDER
@@ -500,6 +672,7 @@ function App() {
             deviceToken={deviceToken}
             updateChecking={updateChecking}
             onCheckUpdates={checkForUpdates}
+            onRestartTutorial={() => setShowOnboarding(true)}
           />
         )}
       </main>
@@ -607,6 +780,24 @@ function App() {
       {/* Update Modal */}
       {showUpdateModal && updateAvailable && (
         <UpdateModal updateInfo={updateAvailable} downloading={updateDownloading} progress={updateProgress} onClose={() => setShowUpdateModal(false)} onInstall={installUpdate} />
+      )}
+
+      {/* Remote Execution Authorization Modal */}
+      {pendingExecution && (
+        <RemoteExecutionModal
+          execution={pendingExecution}
+          onAccept={handleAcceptExecution}
+          onReject={handleRejectExecution}
+          loading={executionLoading}
+        />
+      )}
+
+      {/* Onboarding Tutorial */}
+      {showOnboarding && !loading && (
+        <OnboardingTutorial
+          onComplete={handleOnboardingComplete}
+          onSkip={handleOnboardingSkip}
+        />
       )}
     </div>
   );
