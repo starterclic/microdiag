@@ -9,7 +9,6 @@ interface ToolsPageProps {
   scripts: Script[];
   selectedCategory: string;
   actionRunning: string | null;
-  actionResult: { success: boolean; message: string } | null;
   onSelectCategory: (category: string) => void;
   onRunScript: (script: Script) => void;
 }
@@ -18,7 +17,6 @@ export function ToolsPage({
   scripts,
   selectedCategory,
   actionRunning,
-  actionResult,
   onSelectCategory,
   onRunScript,
 }: ToolsPageProps) {
@@ -32,12 +30,6 @@ export function ToolsPage({
         <h1>Boite a Outils</h1>
         <p className="page-subtitle">Des solutions simples pour garder votre PC en forme</p>
       </div>
-
-      {actionResult && (
-        <div className={`result-toast ${actionResult.success ? 'success' : 'error'}`}>
-          {actionResult.success ? 'OK' : 'Erreur'} {actionResult.message}
-        </div>
-      )}
 
       <div className="category-filters">
         <button

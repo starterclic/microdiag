@@ -1,19 +1,24 @@
 // ============================================
 // MICRODIAG SENTINEL - Main App
-// Version 2.0.0
+// Version 2.4.0 - Local-First Architecture
 // ============================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
+import { Toaster, toast } from 'sonner';
 import './styles/index.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY_TIPS, STARTUP_STEPS } from './constants';
 
+// Local-First Hooks
+import { useScripts, useOnlineStatus, useRemoteExecutions } from './hooks/useLocalDb';
+import * as localDb from './services/localDb';
+
 // Components
-import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial } from './components';
+import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
 
 // Pages
 import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage } from './pages';
@@ -32,11 +37,14 @@ function App() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingTip, setLoadingTip] = useState(SECURITY_TIPS[Math.floor(Math.random() * SECURITY_TIPS.length)]);
 
-  // Scripts state
-  const [scripts, setScripts] = useState<Script[]>([]);
+  // Local-First: Scripts from SQLite (instant)
+  const { scripts: localScripts, loading: scriptsLoading, sync: syncScripts, categories } = useScripts();
+  const scripts = localScripts as unknown as Script[]; // Type compatibility
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Local-First: Online status
+  const { isOnline } = useOnlineStatus();
   const [actionRunning, setActionRunning] = useState<string | null>(null);
-  const [actionResult, setActionResult] = useState<{ success: boolean; message: string } | null>(null);
   const [loaderMessage, setLoaderMessage] = useState<string>('');
   const [loaderProgress, setLoaderProgress] = useState<number>(0);
   const [runningScript, setRunningScript] = useState<Script | null>(null);
@@ -128,16 +136,7 @@ function App() {
     }
   }, []);
 
-  const fetchScripts = useCallback(async () => {
-    try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/scripts?is_active=eq.true&select=*`, {
-        headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY },
-      });
-      if (response.ok) setScripts(await response.json());
-    } catch (error) {
-      console.error('Error fetching scripts:', error);
-    }
-  }, []);
+  // fetchScripts removed - now using useScripts() hook for Local-First architecture
 
   // ==========================================
   // SCRIPT EXECUTION
@@ -168,18 +167,17 @@ function App() {
       const lastLine = lines.length > 0 ? lines[lines.length - 1] : 'Termine avec succes !';
       setLoaderMessage(lastLine.replace(/\[[\w]+\]/g, '').trim() || 'Termine avec succes !');
       setTimeout(() => {
-        setActionResult({ success: true, message: lastLine.length > 60 ? `${script.name} termine !` : lastLine });
         setRunningScript(null);
+        toast.success(lastLine.length > 60 ? `${script.name} terminé !` : lastLine);
       }, 500);
       await invoke('send_notification', { title: 'Microdiag Sentinel', body: `${script.name} termine` });
       fetchData();
     } catch (error) {
       clearInterval(messageInterval);
       setRunningScript(null);
-      setActionResult({ success: false, message: `Erreur: ${error}` });
+      toast.error(`Erreur: ${error}`);
     } finally {
       setActionRunning(null);
-      setTimeout(() => setActionResult(null), 5000);
     }
   };
 
@@ -192,14 +190,13 @@ function App() {
       try {
         const output = await invoke<string>('run_script', { scriptId: slug, code: '', language: 'powershell' });
         const lines = output.trim().split('\n').filter(l => l.trim());
-        const lastLine = lines.length > 0 ? lines[lines.length - 1] : `${name} termine !`;
-        setActionResult({ success: true, message: lastLine.length > 60 ? `${name} termine !` : lastLine });
+        const lastLine = lines.length > 0 ? lines[lines.length - 1] : `${name} terminé !`;
+        toast.success(lastLine.length > 60 ? `${name} terminé !` : lastLine);
         fetchData();
       } catch (error) {
-        setActionResult({ success: false, message: `Erreur: ${error}` });
+        toast.error(`Erreur: ${error}`);
       } finally {
         setActionRunning(null);
-        setTimeout(() => setActionResult(null), 5000);
       }
     }
   };
@@ -456,7 +453,7 @@ function App() {
         body: JSON.stringify(requestBody),
       });
 
-      await invoke('send_notification', { title: 'Demande envoyee', body: 'Un expert vous contactera rapidement.' });
+      toast.success('Demande envoyée ! Un expert vous contactera rapidement.');
       setUrgencySuccess(true);
       setTimeout(() => {
         setShowUrgency(false);
@@ -468,7 +465,7 @@ function App() {
       }, 2000);
     } catch (error) {
       console.error('Erreur urgence:', error);
-      await invoke('send_notification', { title: 'Erreur', body: 'Impossible d\'envoyer la demande.' });
+      toast.error('Impossible d\'envoyer la demande.');
     } finally {
       setUrgencySending(false);
     }
@@ -490,7 +487,7 @@ function App() {
         setUpdateAvailable({ version: data.version, notes: data.notes || '', mandatory: data.mandatory || false });
         setShowUpdateModal(true);
       } else {
-        await invoke('send_notification', { title: 'Microdiag Sentinel', body: 'Derniere version !' });
+        toast.success('Vous avez la dernière version !');
       }
     } catch (error) {
       console.error('Erreur:', error);
@@ -560,7 +557,9 @@ function App() {
   // ==========================================
   useEffect(() => {
     fetchData();
-    fetchScripts();
+    // Scripts now loaded via useScripts() hook - Local-First
+    // Sync scripts from cloud on startup (background)
+    syncScripts().catch(console.error);
     // Auto-check for updates on startup
     setTimeout(() => checkForUpdates(), 3000);
     const interval = setInterval(fetchData, 30000);
@@ -570,7 +569,7 @@ function App() {
     setTimeout(checkRemoteExecutions, 5000);
     const unlisten = listen('run-scan', fetchData);
     return () => { clearInterval(interval); clearInterval(execInterval); unlisten.then((fn) => fn()); };
-  }, [fetchData, fetchScripts, checkRemoteExecutions]);
+  }, [fetchData, syncScripts, checkRemoteExecutions]);
 
   // ==========================================
   // RENDER
@@ -637,7 +636,6 @@ function App() {
             scripts={scripts}
             selectedCategory={selectedCategory}
             actionRunning={actionRunning}
-            actionResult={actionResult}
             onSelectCategory={setSelectedCategory}
             onRunScript={runScript}
           />
@@ -799,6 +797,32 @@ function App() {
           onSkip={handleOnboardingSkip}
         />
       )}
+
+      {/* Command Palette (Ctrl+K) */}
+      <CommandPalette
+        scripts={scripts}
+        onRunScript={runScript}
+        onNavigate={(page) => setCurrentPage(page as Page)}
+        onAction={(action) => {
+          switch (action) {
+            case 'refresh': fetchData(); toast.info('Actualisation...'); break;
+            case 'scan': setCurrentPage('scan'); runSecurityScan(); break;
+            case 'sync': syncScripts().then(() => toast.success('Scripts synchronisés !')); break;
+            case 'urgency': setShowUrgency(true); break;
+          }
+        }}
+      />
+
+      {/* Toast Notifications */}
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          className: 'toast-custom',
+          style: { background: '#1f2937', color: '#f3f4f6', border: '1px solid #374151' },
+        }}
+        richColors
+        closeButton
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 // ============================================
-// MICRODIAG SENTINEL AGENT - v2.3.0
+// MICRODIAG SENTINEL AGENT - v2.4.0
 // Production Ready - Local-First Architecture
 // ============================================
 
