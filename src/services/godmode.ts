@@ -3,7 +3,7 @@
 // Native Performance API (Rust Backend)
 // ============================================
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 // ============================================
 // TYPES

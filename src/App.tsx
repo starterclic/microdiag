@@ -4,7 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Toaster, toast } from 'sonner';
 import './styles/index.css';
@@ -503,7 +503,7 @@ function App() {
     const progressInterval = setInterval(() => setUpdateProgress((prev) => prev >= 90 ? prev : prev + 10), 500);
 
     try {
-      const { open } = await import('@tauri-apps/api/shell');
+      const { open } = await import('@tauri-apps/plugin-shell');
       await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest_setup.exe');
       clearInterval(progressInterval);
       setUpdateProgress(100);

@@ -11,7 +11,7 @@
  *                                                       [Supabase Cloud]
  */
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 // ============================================
 // TYPES
