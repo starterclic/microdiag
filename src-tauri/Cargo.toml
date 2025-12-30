@@ -1,6 +1,6 @@
 [package]
 name = "microdiag-sentinel"
-version = "2.3.0"
+version = "2.4.0"
 description = "Microdiag Sentinel Agent - Surveillance système intelligente"
 authors = ["Microdiag Team"]
 license = "MIT"
@@ -23,7 +23,6 @@ tempfile = "3.10"
 dirs = "5.0"
 # Local-First SQLite
 rusqlite = { version = "0.31", features = ["bundled"] }
-tauri-plugin-sql = { version = "1.0", features = ["sqlite"] }
 
 [features]
 default = ["custom-protocol"]
