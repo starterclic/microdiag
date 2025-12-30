@@ -1,6 +1,7 @@
 // ============================================
-// MICRODIAG SENTINEL AGENT - v2.4.0
+// MICRODIAG SENTINEL AGENT - v2.5.0
 // Production Ready - Local-First Architecture
+// Tauri v2 Migration
 // ============================================
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -24,7 +25,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::path::PathBuf;
 use std::fs;
-use tauri::{Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, CustomMenuItem, AppHandle};
+use tauri::{
+    Manager, AppHandle,
+    menu::{Menu, MenuItem},
+    tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState},
+};
+use tauri_plugin_notification::NotificationExt;
 use tokio::time::interval;
 
 // ============================================
@@ -188,8 +194,8 @@ async fn run_script(_script_id: String, code: String, language: String) -> Resul
 
 #[tauri::command]
 fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
-    use tauri::api::notification::Notification;
-    Notification::new(&app.config().tauri.bundle.identifier)
+    app.notification()
+        .builder()
         .title(&title)
         .body(&body)
         .show()
@@ -506,7 +512,7 @@ fn start_heartbeat_loop(app_handle: AppHandle, state: Arc<AppState>) {
 
             // Emit critical events
             if health.status == "critical" || security.is_critical() {
-                if let Some(window) = app_handle.get_window("main") {
+                if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.emit("health-critical", serde_json::json!({
                         "health": health,
                         "security": security
@@ -539,16 +545,6 @@ fn start_command_loop(state: Arc<AppState>) {
 // MAIN
 // ============================================
 fn main() {
-    let tray_menu = SystemTrayMenu::new()
-        .add_item(CustomMenuItem::new("dashboard", "Ouvrir Dashboard"))
-        .add_item(CustomMenuItem::new("scan", "Lancer Scan"))
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(CustomMenuItem::new("status", "Status: En ligne").disabled())
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(CustomMenuItem::new("quit", "Quitter"));
-
-    let system_tray = SystemTray::new().with_menu(tray_menu);
-
     // Initialize Local-First SQLite database
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
     println!("[Microdiag] SQLite database initialized");
@@ -571,9 +567,59 @@ fn main() {
     let state_commands = Arc::clone(&state);
 
     tauri::Builder::default()
-        .system_tray(system_tray)
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
-            let handle = app.handle();
+            let handle = app.handle().clone();
+
+            // Build tray menu
+            let menu = Menu::with_items(app, &[
+                &MenuItem::with_id(app, "dashboard", "Ouvrir Dashboard", true, None::<&str>)?,
+                &MenuItem::with_id(app, "scan", "Lancer Scan", true, None::<&str>)?,
+                &MenuItem::with_id(app, "status", "Status: En ligne", false, None::<&str>)?,
+                &MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?,
+            ])?;
+
+            // Build tray icon
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    match event {
+                        TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
+                            let app = tray.app_handle();
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "dashboard" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "scan" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.emit("run-scan", ());
+                            }
+                        }
+                        "quit" => std::process::exit(0),
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+
             start_heartbeat_loop(handle.clone(), Arc::clone(&state_heartbeat));
             start_command_loop(Arc::clone(&state_commands));
 
@@ -582,45 +628,20 @@ fn main() {
             println!("[Microdiag] Background sync started");
 
             // Force window to front after startup (improved for Windows)
-            let window = app.get_window("main").unwrap();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_always_on_top(true);
-                let _ = window.set_focus();
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                let _ = window.set_always_on_top(false);
-            });
-
-            println!("[Microdiag] Agent v{} started (Local-First)", AGENT_VERSION);
-            Ok(())
-        })
-        .on_system_tray_event(|app, event| {
-            match event {
-                SystemTrayEvent::LeftClick { .. } => {
-                    if let Some(w) = app.get_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                }
-                SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
-                    "dashboard" => {
-                        if let Some(w) = app.get_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                    "scan" => {
-                        if let Some(w) = app.get_window("main") {
-                            let _ = w.emit("run-scan", ());
-                        }
-                    }
-                    "quit" => std::process::exit(0),
-                    _ => {}
-                },
-                _ => {}
+            if let Some(window) = app.get_webview_window("main") {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_always_on_top(true);
+                    let _ = window.set_focus();
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let _ = window.set_always_on_top(false);
+                });
             }
+
+            println!("[Microdiag] Agent v{} started (Local-First + Tauri v2)", AGENT_VERSION);
+            Ok(())
         })
         .manage(AppState {
             system: Mutex::new(System::new_all()),

@@ -1,99 +1,16 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Microdiag Sentinel",
+  "version": "2.5.0",
+  "identifier": "com.microdiag.sentinel",
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist"
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "Microdiag Sentinel",
-    "version": "2.5.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "open": true,
-        "execute": true,
-        "sidecar": true,
-        "scope": [
-          {
-            "name": "python",
-            "cmd": "python",
-            "args": true
-          }
-        ]
-      },
-      "notification": {
-        "all": true
-      },
-      "process": {
-        "all": true
-      },
-      "os": {
-        "all": true
-      },
-      "fs": {
-        "all": true,
-        "scope": ["$APPDATA/*", "$TEMP/*"]
-      }
-    },
-    "bundle": {
-      "active": true,
-      "category": "Utility",
-      "copyright": "© 2025 Microdiag Solutions",
-      "deb": {
-        "depends": []
-      },
-      "externalBin": [],
-      "icon": [
-        "icons/icon.ico"
-      ],
-      "identifier": "com.microdiag.sentinel",
-      "longDescription": "Agent de surveillance et maintenance automatique pour votre PC",
-      "macOS": {
-        "entitlements": null,
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": null
-      },
-      "resources": ["../scripts/*"],
-      "shortDescription": "Microdiag Sentinel Agent",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": "",
-        "wix": null,
-        "nsis": {
-          "installerIcon": "icons/icon.ico",
-          "headerImage": null,
-          "sidebarImage": null,
-          "license": null,
-          "installMode": "currentUser",
-          "languages": ["French"],
-          "displayLanguageSelector": false
-        }
-      }
-    },
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.microdiag.cybtek.fr https://*.supabase.co; img-src 'self' data: https:; font-src 'self' data:"
-    },
-    "systemTray": {
-      "iconPath": "icons/icon.ico",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false
-    },
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://api.microdiag.cybtek.fr/functions/v1/check-update?target={{target}}&current_version={{current_version}}"
-      ],
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyQTI3QTUxQzBBN0E0NzQKUldSMHBLZkFVWHFpTXYyRE0yOEpGQTJtalZVdjZZTTliajlBU0hQa0hUWjE2Ylp6NjFCSUZGQkUK"
-    },
+  "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "fullscreen": false,
@@ -111,6 +28,51 @@
         "alwaysOnTop": false,
         "skipTaskbar": false
       }
-    ]
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    },
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.microdiag.cybtek.fr https://*.supabase.co; img-src 'self' data: https:; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "copyright": "© 2025 Microdiag Solutions",
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "longDescription": "Agent de surveillance et maintenance automatique pour votre PC",
+    "shortDescription": "Microdiag Sentinel Agent",
+    "targets": "all",
+    "resources": {
+      "scripts/*": "./"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": null,
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": null,
+        "sidebarImage": null,
+        "license": null,
+        "installMode": "currentUser",
+        "languages": ["French"],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://api.microdiag.cybtek.fr/functions/v1/check-update?target={{target}}&current_version={{current_version}}"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyQTI3QTUxQzBBN0E0NzQKUldSMHBLZkFVWHFpTXYyRE0yOEpGQTJtalZVdjZZTTliajlBU0hQa0hUWjE2Ylp6NjFCSUZGQkUK"
+    }
   }
 }

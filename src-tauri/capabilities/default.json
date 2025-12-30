@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Microdiag Sentinel default capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-set-title",
+    "core:event:default",
+    "core:app:default",
+    "shell:default",
+    "shell:allow-open",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "python",
+          "cmd": "python",
+          "args": true
+        }
+      ]
+    },
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "process:default",
+    "process:allow-exit",
+    "process:allow-restart",
+    "os:default",
+    "os:allow-os-type",
+    "os:allow-platform",
+    "os:allow-version",
+    "os:allow-arch",
+    "os:allow-hostname",
+    {
+      "identifier": "fs:default",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$TEMP/**" }
+      ]
+    },
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install"
+  ]
+}
