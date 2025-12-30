@@ -32,10 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Tauri app (unsigned)
+      - name: Build Tauri app (signed)
         run: npm run tauri build
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ''
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
