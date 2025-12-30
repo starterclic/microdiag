@@ -92,7 +92,7 @@
         "https://api.microdiag.cybtek.fr/functions/v1/check-update?target={{target}}&current_version={{current_version}}"
       ],
       "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRjEwNTAxQ0NBOEVEMEU3QwpSV1I4RHUyb3pBRUY4Uy9vY3dQZEZRbFlscDU4R1ZGR0VPNnh2bHI5ZC9kcC9Tai9DSWJkNW5oRAo="
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyQTI3QTUxQzBBN0E0NzQKUldSMHBLZkFVWHFpTXYyRE0yOEpGQTJtalZVdjZZTTliajlBU0hQa0hUWjE2Ylp6NjFCSUZGQkUK"
     },
     "windows": [
       {
