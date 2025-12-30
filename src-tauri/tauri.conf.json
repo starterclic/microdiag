@@ -48,9 +48,9 @@
     "longDescription": "Agent de surveillance et maintenance automatique pour votre PC",
     "shortDescription": "Microdiag Sentinel Agent",
     "targets": "all",
-    "resources": {
-      "scripts/*": "./"
-    },
+    "resources": [
+      "../scripts/*"
+    ],
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
