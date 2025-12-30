@@ -117,11 +117,10 @@ fn get_health_score(state: tauri::State<AppState>) -> Result<HealthScore, String
 }
 
 #[tauri::command]
-async fn get_security_status() -> Result<SecurityStatus, String> {
-    // Run in blocking thread to avoid freezing UI (PowerShell calls are slow)
-    tokio::task::spawn_blocking(|| SecurityStatus::check())
-        .await
-        .map_err(|e| e.to_string())
+fn get_security_status() -> Result<SecurityStatus, String> {
+    // Note: This can take 2-5s on Windows due to PowerShell calls
+    // But Promise.allSettled in frontend handles this gracefully
+    Ok(SecurityStatus::check())
 }
 
 #[tauri::command]
