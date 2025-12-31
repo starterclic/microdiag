@@ -105,15 +105,27 @@ struct AgentCommand {
 // ============================================
 #[tauri::command]
 fn get_system_metrics(state: tauri::State<AppState>) -> Result<SystemMetrics, String> {
-    let mut sys = state.system.lock().map_err(|e| e.to_string())?;
-    Ok(SystemMetrics::collect(&mut sys))
+    println!("[CMD] get_system_metrics called");
+    let mut sys = state.system.lock().map_err(|e| {
+        println!("[CMD] get_system_metrics lock error: {}", e);
+        e.to_string()
+    })?;
+    let metrics = SystemMetrics::collect(&mut sys);
+    println!("[CMD] get_system_metrics: CPU={:.1}%, RAM={:.1}%", metrics.cpu_usage, metrics.memory_percent);
+    Ok(metrics)
 }
 
 #[tauri::command]
 fn get_health_score(state: tauri::State<AppState>) -> Result<HealthScore, String> {
-    let mut sys = state.system.lock().map_err(|e| e.to_string())?;
+    println!("[CMD] get_health_score called");
+    let mut sys = state.system.lock().map_err(|e| {
+        println!("[CMD] get_health_score lock error: {}", e);
+        e.to_string()
+    })?;
     let metrics = SystemMetrics::collect(&mut sys);
-    Ok(metrics.calculate_health())
+    let health = metrics.calculate_health();
+    println!("[CMD] get_health_score: score={}", health.score);
+    Ok(health)
 }
 
 #[tauri::command]
@@ -552,14 +564,9 @@ fn main() {
     // Load or create persistent device token (ONCE)
     let device_token = load_or_create_device_token();
 
-    // Initialize sysinfo with full refresh for accurate first reading
-    let mut system = System::new_all();
-    println!("[Microdiag] System info initialized (CPU: {:.1}%, RAM: {:.1}%)",
-        if system.cpus().is_empty() { 0.0 } else {
-            system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32
-        },
-        (system.used_memory() as f64 / system.total_memory() as f64 * 100.0) as f32
-    );
+    // Initialize sysinfo - fast startup, metrics refresh on first call
+    let system = System::new();
+    println!("[Microdiag] System info initialized");
 
     // Create SINGLE shared state
     let state = Arc::new(AppState {

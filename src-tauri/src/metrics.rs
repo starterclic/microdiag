@@ -35,8 +35,9 @@ pub struct HealthScore {
 
 impl SystemMetrics {
     pub fn collect(sys: &mut System) -> Self {
-        // Simple and reliable - refresh everything
-        sys.refresh_all();
+        // Targeted refresh - faster than refresh_all()
+        sys.refresh_cpu();
+        sys.refresh_memory();
 
         let cpus = sys.cpus();
         let cpu_usage = if cpus.is_empty() {
