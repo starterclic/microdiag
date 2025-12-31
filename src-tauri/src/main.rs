@@ -104,7 +104,7 @@ struct AgentCommand {
 // TAURI COMMANDS
 // ============================================
 #[tauri::command]
-fn get_system_metrics(state: tauri::State<AppState>) -> Result<SystemMetrics, String> {
+fn get_system_metrics(state: tauri::State<Arc<AppState>>) -> Result<SystemMetrics, String> {
     // Try to get real metrics, fallback to test values
     match state.system.lock() {
         Ok(mut sys) => {
@@ -150,7 +150,7 @@ fn get_system_metrics(state: tauri::State<AppState>) -> Result<SystemMetrics, St
 }
 
 #[tauri::command]
-fn get_health_score(state: tauri::State<AppState>) -> Result<HealthScore, String> {
+fn get_health_score(state: tauri::State<Arc<AppState>>) -> Result<HealthScore, String> {
     // Simple health score based on metrics
     let metrics = get_system_metrics(state)?;
     Ok(metrics.calculate_health())
@@ -162,7 +162,7 @@ fn get_security_status() -> Result<SecurityStatus, String> {
 }
 
 #[tauri::command]
-fn get_device_token(state: tauri::State<AppState>) -> String {
+fn get_device_token(state: tauri::State<Arc<AppState>>) -> String {
     state.device_token.lock().unwrap().clone()
 }
 
@@ -293,57 +293,57 @@ async fn run_security_scan() -> Result<serde_json::Value, String> {
 // ============================================
 
 #[tauri::command]
-fn db_get_scripts(state: tauri::State<AppState>) -> Result<Vec<LocalScript>, String> {
+fn db_get_scripts(state: tauri::State<Arc<AppState>>) -> Result<Vec<LocalScript>, String> {
     state.db.get_all_scripts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_get_scripts_by_category(state: tauri::State<AppState>, category: String) -> Result<Vec<LocalScript>, String> {
+fn db_get_scripts_by_category(state: tauri::State<Arc<AppState>>, category: String) -> Result<Vec<LocalScript>, String> {
     state.db.get_scripts_by_category(&category).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_get_scripts_count(state: tauri::State<AppState>) -> Result<i32, String> {
+fn db_get_scripts_count(state: tauri::State<Arc<AppState>>) -> Result<i32, String> {
     state.db.get_scripts_count().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_save_metrics(state: tauri::State<AppState>, metrics: LocalMetrics) -> Result<i64, String> {
+fn db_save_metrics(state: tauri::State<Arc<AppState>>, metrics: LocalMetrics) -> Result<i64, String> {
     state.db.save_metrics(&metrics).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_get_recent_metrics(state: tauri::State<AppState>, limit: i32) -> Result<Vec<LocalMetrics>, String> {
+fn db_get_recent_metrics(state: tauri::State<Arc<AppState>>, limit: i32) -> Result<Vec<LocalMetrics>, String> {
     state.db.get_recent_metrics(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_get_chat_history(state: tauri::State<AppState>, limit: i32) -> Result<Vec<ChatMessage>, String> {
+fn db_get_chat_history(state: tauri::State<Arc<AppState>>, limit: i32) -> Result<Vec<ChatMessage>, String> {
     state.db.get_chat_history(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_add_chat_message(state: tauri::State<AppState>, role: String, content: String) -> Result<i64, String> {
+fn db_add_chat_message(state: tauri::State<Arc<AppState>>, role: String, content: String) -> Result<i64, String> {
     state.db.add_chat_message(&role, &content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_clear_chat(state: tauri::State<AppState>) -> Result<(), String> {
+fn db_clear_chat(state: tauri::State<Arc<AppState>>) -> Result<(), String> {
     state.db.clear_chat_history().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_get_setting(state: tauri::State<AppState>, key: String) -> Result<Option<String>, String> {
+fn db_get_setting(state: tauri::State<Arc<AppState>>, key: String) -> Result<Option<String>, String> {
     state.db.get_setting(&key).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn db_set_setting(state: tauri::State<AppState>, key: String, value: String) -> Result<(), String> {
+fn db_set_setting(state: tauri::State<Arc<AppState>>, key: String, value: String) -> Result<(), String> {
     state.db.set_setting(&key, &value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn db_sync_scripts(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+async fn db_sync_scripts(state: tauri::State<'_, Arc<AppState>>) -> Result<usize, String> {
     sync_scripts_from_supabase(&state.db).await
 }
 
@@ -353,7 +353,7 @@ async fn db_check_online() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn db_check_remote_executions(state: tauri::State<'_, AppState>) -> Result<Vec<RemoteExecution>, String> {
+async fn db_check_remote_executions(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<RemoteExecution>, String> {
     let device_token = state.device_token.lock().unwrap().clone();
     check_remote_executions(&state.db, &device_token).await
 }
