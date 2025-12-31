@@ -16,6 +16,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY
 // Local-First Hooks
 import { useScripts, useOnlineStatus, useRemoteExecutions } from './hooks/useLocalDb';
 import * as localDb from './services/localDb';
+import * as godmode from './services/godmode';
 
 // Components
 import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
@@ -33,6 +34,7 @@ function App() {
   const [health, setHealth] = useState<HealthScore | null>(null);
   const [security, setSecurity] = useState<SecurityStatus | null>(null);
   const [deviceToken, setDeviceToken] = useState<string>('');
+  const [deepHealth, setDeepHealth] = useState<godmode.DeepHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingTip, setLoadingTip] = useState(SECURITY_TIPS[Math.floor(Math.random() * SECURITY_TIPS.length)]);
@@ -115,18 +117,20 @@ function App() {
 
       // ALL FAST now - security uses Registry API instead of PowerShell
       setLoadingStep(2);
-      const [metricsResult, healthResult, securityResult, tokenResult] = await Promise.allSettled([
+      const [metricsResult, healthResult, securityResult, tokenResult, deepHealthResult] = await Promise.allSettled([
         invoke<SystemMetrics>('get_system_metrics'),
         invoke<HealthScore>('get_health_score'),
         invoke<SecurityStatus>('get_security_status'),
         invoke<string>('get_device_token'),
+        godmode.getDeepHealth(),
       ]);
 
       console.log('[Microdiag] Results:', {
         metrics: metricsResult,
         health: healthResult,
         security: securityResult,
-        token: tokenResult
+        token: tokenResult,
+        deepHealth: deepHealthResult
       });
 
       setLoadingStep(3);
@@ -155,6 +159,12 @@ function App() {
 
       if (tokenResult.status === 'fulfilled') {
         setDeviceToken(tokenResult.value);
+      }
+
+      if (deepHealthResult.status === 'fulfilled') {
+        setDeepHealth(deepHealthResult.value);
+      } else {
+        console.error('DeepHealth error:', deepHealthResult.reason);
       }
 
       setLoadingStep(4);
@@ -652,6 +662,7 @@ function App() {
           <DashboardPage
             metrics={metrics}
             health={health}
+            deepHealth={deepHealth}
             actionRunning={actionRunning}
             onRefresh={fetchData}
             onQuickAction={runQuickAction}

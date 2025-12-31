@@ -3,10 +3,12 @@
 // ============================================
 
 import { SystemMetrics, HealthScore } from '../types';
+import { DeepHealth } from '../services/godmode';
 
 interface DashboardPageProps {
   metrics: SystemMetrics | null;
   health: HealthScore | null;
+  deepHealth: DeepHealth | null;
   actionRunning: string | null;
   onRefresh: () => void;
   onQuickAction: (slug: string, name: string) => void;
@@ -17,6 +19,7 @@ interface DashboardPageProps {
 export function DashboardPage({
   metrics,
   health,
+  deepHealth,
   actionRunning,
   onRefresh,
   onQuickAction,
@@ -93,6 +96,46 @@ export function DashboardPage({
           ))}
         </div>
       </section>
+
+      {/* SMART Disk Health - CrystalDiskInfo style */}
+      {deepHealth && (
+        <section className="smart-section">
+          <h3>Sante du Disque (SMART)</h3>
+          <div className="smart-card">
+            <div className="smart-status-badge" style={{
+              background: deepHealth.disk_smart_status === 'OK' ? '#00c853' :
+                         deepHealth.disk_smart_status === 'Unknown' ? '#6b7280' : '#ef4444'
+            }}>
+              {deepHealth.disk_smart_status === 'OK' ? 'Bon' :
+               deepHealth.disk_smart_status === 'Unknown' ? '?' : 'Attention'}
+            </div>
+            <div className="smart-details">
+              <div className="smart-row">
+                <span className="smart-label">Modele</span>
+                <span className="smart-value">{deepHealth.disk_model || 'Non detecte'}</span>
+              </div>
+              <div className="smart-row">
+                <span className="smart-label">Etat SMART</span>
+                <span className="smart-value" style={{
+                  color: deepHealth.disk_smart_status === 'OK' ? '#00c853' :
+                         deepHealth.disk_smart_status === 'Unknown' ? '#6b7280' : '#ef4444'
+                }}>
+                  {deepHealth.disk_smart_status === 'OK' ? 'Sain' :
+                   deepHealth.disk_smart_status === 'Unknown' ? 'Non disponible' : deepHealth.disk_smart_status}
+                </span>
+              </div>
+              {deepHealth.battery?.is_present && (
+                <div className="smart-row">
+                  <span className="smart-label">Batterie</span>
+                  <span className="smart-value">
+                    {deepHealth.battery.charge_percent}% - Sante {deepHealth.battery.health_percent}%
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Quick Actions */}
       <section className="actions-section">
