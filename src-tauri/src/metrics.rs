@@ -34,20 +34,12 @@ pub struct HealthScore {
 }
 
 impl SystemMetrics {
-    /// Refresh CPU metrics - call this in background thread
-    /// Must be called twice with 200ms+ delay between calls for accurate readings
-    pub fn refresh_cpu(sys: &mut System) {
-        sys.refresh_cpu();
-    }
-
-    /// Collect metrics WITHOUT blocking - uses last known CPU value
-    /// CPU is refreshed in background by heartbeat loop
+    /// Collect system metrics - fast, no blocking
     pub fn collect(sys: &mut System) -> Self {
-        // Refresh memory (instant - ~1ms)
+        // Refresh CPU and memory (fast - no sleep needed after first init)
+        sys.refresh_cpu();
         sys.refresh_memory();
 
-        // CPU: just read cached values from last refresh
-        // The heartbeat loop refreshes CPU every 30s in background
         let cpus = sys.cpus();
         let cpu_usage = if cpus.is_empty() {
             0.0

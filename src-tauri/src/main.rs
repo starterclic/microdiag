@@ -495,19 +495,7 @@ fn start_heartbeat_loop(app_handle: AppHandle, state: Arc<AppState>) {
             let running = *state.heartbeat_running.lock().unwrap();
             if !running { continue; }
 
-            // Refresh CPU in background (non-blocking via tokio::spawn_blocking)
-            // sysinfo needs 2 samples with delay for accurate CPU reading
-            {
-                let mut sys = state.system.lock().unwrap();
-                sys.refresh_cpu();
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            {
-                let mut sys = state.system.lock().unwrap();
-                sys.refresh_cpu();
-            }
-
-            // Collect metrics (CPU already refreshed above)
+            // Collect metrics (includes CPU + memory refresh)
             let metrics = {
                 let mut sys = state.system.lock().unwrap();
                 SystemMetrics::collect(&mut sys)
@@ -566,18 +554,11 @@ fn main() {
     // Load or create persistent device token (ONCE)
     let device_token = load_or_create_device_token();
 
-    // Initialize sysinfo with minimal data
+    // Initialize sysinfo (fast - no blocking)
     let mut system = System::new();
+    system.refresh_cpu();
     system.refresh_memory();
-    // Do TWO CPU refreshes with 200ms delay for accurate initial reading
-    // (sysinfo needs 2 samples to calculate CPU usage)
-    system.refresh_cpu();
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    system.refresh_cpu();
-    println!("[Microdiag] System info initialized (CPU: {:.1}%)",
-        if system.cpus().is_empty() { 0.0 } else {
-            system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32
-        });
+    println!("[Microdiag] System info initialized");
 
     // Create SINGLE shared state
     let state = Arc::new(AppState {
