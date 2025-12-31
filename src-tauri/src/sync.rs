@@ -24,16 +24,24 @@ pub enum SyncStatus {
 // SCRIPTS SYNC
 // ============================================
 pub async fn sync_scripts_from_supabase(db: &Arc<Database>) -> Result<usize, String> {
+    println!("[Sync] Starting scripts sync from Supabase...");
     let client = reqwest::Client::new();
 
+    let url = format!("{}/rest/v1/scripts?is_active=eq.true&select=*", SUPABASE_URL);
+    println!("[Sync] Fetching from: {}", url);
+
     let response = client
-        .get(format!("{}/rest/v1/scripts?is_active=eq.true&select=*", SUPABASE_URL))
+        .get(&url)
         .header("Authorization", format!("Bearer {}", SUPABASE_ANON_KEY))
         .header("apikey", SUPABASE_ANON_KEY)
         .send()
         .await
-        .map_err(|e| format!("Network error: {}", e))?;
+        .map_err(|e| {
+            println!("[Sync] Network error: {}", e);
+            format!("Network error: {}", e)
+        })?;
 
+    println!("[Sync] Response status: {}", response.status());
     if !response.status().is_success() {
         return Err(format!("API error: {}", response.status()));
     }
@@ -41,7 +49,12 @@ pub async fn sync_scripts_from_supabase(db: &Arc<Database>) -> Result<usize, Str
     let scripts: Vec<serde_json::Value> = response
         .json()
         .await
-        .map_err(|e| format!("JSON error: {}", e))?;
+        .map_err(|e| {
+            println!("[Sync] JSON parse error: {}", e);
+            format!("JSON error: {}", e)
+        })?;
+
+    println!("[Sync] Received {} scripts from API", scripts.len());
 
     let mut count = 0;
     for script in scripts {

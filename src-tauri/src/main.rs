@@ -552,11 +552,14 @@ fn main() {
     // Load or create persistent device token (ONCE)
     let device_token = load_or_create_device_token();
 
-    // Initialize sysinfo with minimal data first (FAST)
-    // Full refresh will happen in background
-    let mut system = System::new();
-    system.refresh_memory();  // Fast - only memory
-    println!("[Microdiag] System info initialized (minimal)");
+    // Initialize sysinfo with full refresh for accurate first reading
+    let mut system = System::new_all();
+    println!("[Microdiag] System info initialized (CPU: {:.1}%, RAM: {:.1}%)",
+        if system.cpus().is_empty() { 0.0 } else {
+            system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32
+        },
+        (system.used_memory() as f64 / system.total_memory() as f64 * 100.0) as f32
+    );
 
     // Create SINGLE shared state
     let state = Arc::new(AppState {
