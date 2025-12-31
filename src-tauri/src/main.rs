@@ -124,12 +124,28 @@ fn get_system_metrics(state: tauri::State<Arc<AppState>>) -> Result<SystemMetric
                 (memory_used as f64 / memory_total as f64 * 100.0) as f32
             } else { 50.0 };
 
+            // Get disk info
+            let disks = sysinfo::Disks::new_with_refreshed_list();
+            let disk_infos: Vec<DiskInfo> = disks.iter().map(|disk| {
+                let total = disk.total_space() as f64;
+                let available = disk.available_space() as f64;
+                let used = total - available;
+                DiskInfo {
+                    name: disk.name().to_string_lossy().to_string(),
+                    mount_point: disk.mount_point().to_string_lossy().to_string(),
+                    total_gb: total / 1_073_741_824.0,
+                    used_gb: used / 1_073_741_824.0,
+                    free_gb: available / 1_073_741_824.0,
+                    percent: if total > 0.0 { (used / total * 100.0) as f32 } else { 0.0 },
+                }
+            }).collect();
+
             Ok(SystemMetrics {
                 cpu_usage,
                 memory_total,
                 memory_used,
                 memory_percent,
-                disks: vec![],  // Skip disks for now
+                disks: disk_infos,
                 hostname: sysinfo::System::host_name().unwrap_or_else(|| "PC".to_string()),
                 os_version: sysinfo::System::os_version().unwrap_or_default(),
             })
