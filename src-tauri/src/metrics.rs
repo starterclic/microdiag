@@ -34,11 +34,9 @@ pub struct HealthScore {
 }
 
 impl SystemMetrics {
-    /// Collect system metrics - fast, no blocking
     pub fn collect(sys: &mut System) -> Self {
-        // Refresh CPU and memory (fast - no sleep needed after first init)
-        sys.refresh_cpu();
-        sys.refresh_memory();
+        // Simple and reliable - refresh everything
+        sys.refresh_all();
 
         let cpus = sys.cpus();
         let cpu_usage = if cpus.is_empty() {

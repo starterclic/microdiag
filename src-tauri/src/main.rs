@@ -118,8 +118,6 @@ fn get_health_score(state: tauri::State<AppState>) -> Result<HealthScore, String
 
 #[tauri::command]
 fn get_security_status() -> Result<SecurityStatus, String> {
-    // Note: This can take 2-5s on Windows due to PowerShell calls
-    // But Promise.allSettled in frontend handles this gracefully
     Ok(SecurityStatus::check())
 }
 
@@ -495,7 +493,7 @@ fn start_heartbeat_loop(app_handle: AppHandle, state: Arc<AppState>) {
             let running = *state.heartbeat_running.lock().unwrap();
             if !running { continue; }
 
-            // Collect metrics (includes CPU + memory refresh)
+            // Collect metrics
             let metrics = {
                 let mut sys = state.system.lock().unwrap();
                 SystemMetrics::collect(&mut sys)
@@ -554,11 +552,11 @@ fn main() {
     // Load or create persistent device token (ONCE)
     let device_token = load_or_create_device_token();
 
-    // Initialize sysinfo (fast - no blocking)
+    // Initialize sysinfo with minimal data first (FAST)
+    // Full refresh will happen in background
     let mut system = System::new();
-    system.refresh_cpu();
-    system.refresh_memory();
-    println!("[Microdiag] System info initialized");
+    system.refresh_memory();  // Fast - only memory
+    println!("[Microdiag] System info initialized (minimal)");
 
     // Create SINGLE shared state
     let state = Arc::new(AppState {
