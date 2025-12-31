@@ -533,7 +533,7 @@ function App() {
 
     try {
       const { open } = await import('@tauri-apps/plugin-shell');
-      await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest_setup.exe');
+      await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest.msi');
       clearInterval(progressInterval);
       setUpdateProgress(100);
       setTimeout(() => { setShowUpdateModal(false); setUpdateDownloading(false); }, 1500);
