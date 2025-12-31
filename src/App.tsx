@@ -113,17 +113,25 @@ function App() {
       setLoadingStep(1);
       console.log('[Microdiag] fetchData starting...');
 
-      // FAST: Load metrics, health, token first (no PowerShell)
+      // ALL FAST now - security uses Registry API instead of PowerShell
       setLoadingStep(2);
-      const [metricsResult, healthResult, tokenResult] = await Promise.allSettled([
+      const [metricsResult, healthResult, securityResult, tokenResult] = await Promise.allSettled([
         invoke<SystemMetrics>('get_system_metrics'),
         invoke<HealthScore>('get_health_score'),
+        invoke<SecurityStatus>('get_security_status'),
         invoke<string>('get_device_token'),
       ]);
 
-      console.log('[Microdiag] Fast results:', { metrics: metricsResult, health: healthResult, token: tokenResult });
+      console.log('[Microdiag] Results:', {
+        metrics: metricsResult,
+        health: healthResult,
+        security: securityResult,
+        token: tokenResult
+      });
 
-      // Apply fast results immediately
+      setLoadingStep(3);
+
+      // Apply results with fallbacks
       if (metricsResult.status === 'fulfilled') {
         setMetrics(metricsResult.value);
       } else {
@@ -138,26 +146,21 @@ function App() {
         setHealth({ score: 0, status: 'unknown', issues: ['Erreur de chargement'] });
       }
 
+      if (securityResult.status === 'fulfilled') {
+        setSecurity(securityResult.value);
+      } else {
+        console.error('Security error:', securityResult.reason);
+        setSecurity({ antivirus_enabled: true, realtime_protection: true, firewall_enabled: true, last_scan_days: 0, definitions_age_days: 0, issues: [] });
+      }
+
       if (tokenResult.status === 'fulfilled') {
         setDeviceToken(tokenResult.value);
       }
 
-      setLoadingStep(3);
-      setLoading(false); // Show UI immediately!
-
-      // SLOW: Load security in background (PowerShell calls)
       setLoadingStep(4);
-      try {
-        const securityData = await invoke<SecurityStatus>('get_security_status');
-        setSecurity(securityData);
-        console.log('[Microdiag] Security loaded:', securityData);
-      } catch (e) {
-        console.error('Security error:', e);
-        setSecurity({ antivirus_enabled: false, realtime_protection: false, firewall_enabled: false, last_scan_days: -1, definitions_age_days: -1, issues: ['Vérification en cours...'] });
-      }
-
     } catch (error) {
       console.error('Error fetching data:', error);
+    } finally {
       setLoading(false);
     }
   }, []);

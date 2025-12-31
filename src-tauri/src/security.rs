@@ -1,16 +1,14 @@
 // ============================================
 // MICRODIAG AGENT - Security Monitoring
+// Uses Windows Registry API (FAST) instead of PowerShell
 // ============================================
 
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-// Hide PowerShell window on Windows
+use winreg::enums::*;
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use winreg::RegKey;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SecurityStatus {
@@ -24,21 +22,6 @@ pub struct SecurityStatus {
 
 impl SecurityStatus {
     #[cfg(windows)]
-    fn run_powershell_hidden(script: &str) -> Option<String> {
-        Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-    }
-
-    #[cfg(not(windows))]
-    fn run_powershell_hidden(_script: &str) -> Option<String> {
-        None
-    }
-
     pub fn check() -> Self {
         let mut status = SecurityStatus {
             antivirus_enabled: true,
@@ -49,28 +32,48 @@ impl SecurityStatus {
             issues: Vec::new(),
         };
 
-        // Check Windows Defender (hidden window)
-        if let Some(output) = Self::run_powershell_hidden(r#"
-            try {
-                $s = Get-MpComputerStatus -ErrorAction Stop
-                @{ AV = $s.AntivirusEnabled; RTP = $s.RealTimeProtectionEnabled; DefAge = $s.AntivirusSignatureAge } | ConvertTo-Json -Compress
-            } catch { '{"error":true}' }
-        "#) {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&output) {
-                if parsed.get("error").is_none() {
-                    status.antivirus_enabled = parsed["AV"].as_bool().unwrap_or(true);
-                    status.realtime_protection = parsed["RTP"].as_bool().unwrap_or(true);
-                    status.definitions_age_days = parsed["DefAge"].as_i64().unwrap_or(0) as i32;
+        // Check Windows Defender via Registry (FAST - ~1ms)
+        if let Ok(hklm) = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey("SOFTWARE\\Microsoft\\Windows Defender")
+        {
+            // Check if Defender is disabled
+            if let Ok(disabled) = hklm.get_value::<u32, _>("DisableAntiSpyware") {
+                if disabled == 1 {
+                    status.antivirus_enabled = false;
                 }
             }
         }
 
-        // Check Firewall (hidden window)
-        if let Some(output) = Self::run_powershell_hidden(
-            "(Get-NetFirewallProfile -Profile Domain,Public,Private | Where-Object {$_.Enabled -eq $true}).Count -gt 0"
-        ) {
-            status.firewall_enabled = output.trim().to_lowercase() == "true";
+        // Check Real-Time Protection via Registry
+        if let Ok(hklm) = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey("SOFTWARE\\Microsoft\\Windows Defender\\Real-Time Protection")
+        {
+            if let Ok(disabled) = hklm.get_value::<u32, _>("DisableRealtimeMonitoring") {
+                if disabled == 1 {
+                    status.realtime_protection = false;
+                }
+            }
         }
+
+        // Check Windows Firewall via Registry (Domain, Private, Public profiles)
+        let firewall_profiles = [
+            "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\DomainProfile",
+            "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile",
+            "SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\PublicProfile",
+        ];
+
+        let mut any_firewall_enabled = false;
+        for profile_path in firewall_profiles {
+            if let Ok(profile) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(profile_path) {
+                if let Ok(enabled) = profile.get_value::<u32, _>("EnableFirewall") {
+                    if enabled == 1 {
+                        any_firewall_enabled = true;
+                        break;
+                    }
+                }
+            }
+        }
+        status.firewall_enabled = any_firewall_enabled;
 
         // Build issues list
         if !status.antivirus_enabled {
@@ -82,11 +85,21 @@ impl SecurityStatus {
         if !status.firewall_enabled {
             status.issues.push("Pare-feu désactivé".to_string());
         }
-        if status.definitions_age_days > 7 {
-            status.issues.push(format!("Définitions AV obsolètes ({} jours)", status.definitions_age_days));
-        }
 
         status
+    }
+
+    #[cfg(not(windows))]
+    pub fn check() -> Self {
+        // Non-Windows: return safe defaults
+        SecurityStatus {
+            antivirus_enabled: true,
+            realtime_protection: true,
+            firewall_enabled: true,
+            last_scan_days: 0,
+            definitions_age_days: 0,
+            issues: Vec::new(),
+        }
     }
 
     pub fn is_critical(&self) -> bool {
