@@ -91,7 +91,7 @@ export interface ScanReport {
   sections: ScanSection[];
 }
 
-export type Page = 'dashboard' | 'tools' | 'chat' | 'settings' | 'scan' | 'godmode';
+export type Page = 'dashboard' | 'tools' | 'chat' | 'settings' | 'scan' | 'godmode' | 'diagnostic';
 
 export interface RemoteExecution {
   id: string;

@@ -12,6 +12,7 @@ mod security;
 mod database;
 mod sync;
 mod godmode;
+mod diagnostics;
 
 use config::*;
 use metrics::*;
@@ -445,6 +446,41 @@ fn gm_restore_backup(backup_path: String) -> godmode::TweakResult {
 }
 
 // ============================================
+// PREMIUM DIAGNOSTICS COMMANDS
+// ============================================
+
+#[tauri::command]
+fn run_premium_diagnostic(state: tauri::State<Arc<AppState>>) -> Result<diagnostics::PremiumDiagnostic, String> {
+    match state.system.lock() {
+        Ok(mut sys) => Ok(diagnostics::run_premium_diagnostic(&mut sys)),
+        Err(_) => Err("Failed to acquire system lock".to_string()),
+    }
+}
+
+#[tauri::command]
+fn get_temperatures() -> diagnostics::TemperatureInfo {
+    diagnostics::get_temperatures()
+}
+
+#[tauri::command]
+fn get_process_analysis(state: tauri::State<Arc<AppState>>) -> Result<diagnostics::ProcessAnalysis, String> {
+    match state.system.lock() {
+        Ok(sys) => Ok(diagnostics::analyze_processes(&sys)),
+        Err(_) => Err("Failed to acquire system lock".to_string()),
+    }
+}
+
+#[tauri::command]
+fn get_network_analysis() -> diagnostics::NetworkAnalysis {
+    diagnostics::analyze_network()
+}
+
+#[tauri::command]
+fn get_storage_analysis() -> diagnostics::StorageAnalysis {
+    diagnostics::analyze_storage()
+}
+
+// ============================================
 // HEARTBEAT
 // ============================================
 async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus, deep_health: &godmode::DeepHealth) -> Result<(), String> {
@@ -751,6 +787,12 @@ fn main() {
             gm_ghost_mode,
             gm_list_backups,
             gm_restore_backup,
+            // Premium Diagnostics commands
+            run_premium_diagnostic,
+            get_temperatures,
+            get_process_analysis,
+            get_network_analysis,
+            get_storage_analysis,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Toaster, toast } from 'sonner';
 import './styles/index.css';
+import './styles/diagnostic.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
@@ -22,7 +23,7 @@ import * as godmode from './services/godmode';
 import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
 
 // Pages
-import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage } from './pages';
+import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage, DiagnosticPage } from './pages';
 
 // Scan steps timing (10 steps)
 const SCAN_STEP_DURATION = 1500;
@@ -787,6 +788,10 @@ function App() {
 
         {currentPage === 'godmode' && (
           <GodModePage metrics={metrics} />
+        )}
+
+        {currentPage === 'diagnostic' && (
+          <DiagnosticPage onRunAction={(action) => runQuickAction(action, action)} />
         )}
       </main>
 
