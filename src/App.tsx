@@ -735,6 +735,7 @@ function App() {
             metrics={metrics}
             health={health}
             deepHealth={deepHealth}
+            security={security}
             actionRunning={actionRunning}
             onRefresh={fetchData}
             onQuickAction={runQuickAction}
