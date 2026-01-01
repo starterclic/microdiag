@@ -66,19 +66,34 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
 
-          # Find signature file
-          SIG_FILE=$(ls release-assets/*.sig 2>/dev/null | head -1 || echo "")
-          if [ -f "$SIG_FILE" ]; then
-            SIGNATURE=$(cat "$SIG_FILE")
+          # Find signature file - try multiple patterns for Tauri 2.x
+          echo "Looking for signature files in release-assets/..."
+          ls -la release-assets/ || true
+
+          # Try different signature file patterns
+          SIG_FILE=""
+          for pattern in "*.msi.zip.sig" "*.nsis.zip.sig" "*.sig"; do
+            found=$(ls release-assets/$pattern 2>/dev/null | head -1 || echo "")
+            if [ -n "$found" ] && [ -f "$found" ]; then
+              SIG_FILE="$found"
+              echo "Found signature file: $SIG_FILE"
+              break
+            fi
+          done
+
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
+            SIGNATURE=$(cat "$SIG_FILE" | tr -d '\n\r')
+            echo "Signature loaded (${#SIGNATURE} chars)"
           else
             SIGNATURE=""
+            echo "WARNING: No signature file found!"
           fi
 
           # Generate latest.json for Tauri updater
           cat > release-assets/latest.json << EOF
           {
             "version": "$VERSION",
-            "notes": "Microdiag Sentinel v$VERSION - Auto-deployed",
+            "notes": "Microdiag Sentinel v$VERSION - Mise a jour automatique",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {

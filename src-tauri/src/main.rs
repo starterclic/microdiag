@@ -89,6 +89,7 @@ struct HeartbeatPayload {
     metrics: serde_json::Value,
     specs: serde_json::Value,
     security: serde_json::Value,
+    deep_health: serde_json::Value,
     agent_version: String,
 }
 
@@ -446,7 +447,7 @@ fn gm_restore_backup(backup_path: String) -> godmode::TweakResult {
 // ============================================
 // HEARTBEAT
 // ============================================
-async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus) -> Result<(), String> {
+async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus, deep_health: &godmode::DeepHealth) -> Result<(), String> {
     let client = reqwest::Client::new();
 
     let payload = HeartbeatPayload {
@@ -470,6 +471,19 @@ async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &He
             "realtime": security.realtime_protection,
             "firewall": security.firewall_enabled,
             "issues": security.issues,
+        }),
+        deep_health: serde_json::json!({
+            "disk_model": deep_health.disk_model,
+            "disk_smart_status": deep_health.disk_smart_status,
+            "bios_serial": deep_health.bios_serial,
+            "bios_manufacturer": deep_health.bios_manufacturer,
+            "computer_name": deep_health.computer_name,
+            "battery": {
+                "is_present": deep_health.battery.is_present,
+                "charge_percent": deep_health.battery.charge_percent,
+                "health_percent": deep_health.battery.health_percent,
+                "status": deep_health.battery.status,
+            }
         }),
         agent_version: AGENT_VERSION.to_string(),
     };
@@ -556,10 +570,11 @@ fn start_heartbeat_loop(app_handle: AppHandle, state: Arc<AppState>) {
             };
             let health = metrics.calculate_health();
             let security = SecurityStatus::check();
+            let deep_health = godmode::get_deep_health();
             let device_token = state.device_token.lock().unwrap().clone();
 
-            // Send heartbeat
-            let _ = send_heartbeat(&device_token, &metrics, &health, &security).await;
+            // Send heartbeat with deep health info
+            let _ = send_heartbeat(&device_token, &metrics, &health, &security, &deep_health).await;
 
             // Log security issues
             if let Some(log) = SecurityLog::from_status(&security) {

@@ -511,27 +511,87 @@ function App() {
   };
 
   // ==========================================
-  // UPDATES
+  // UPDATES - Silent Auto-Update with Tauri Plugin
   // ==========================================
-  const checkForUpdates = async () => {
-    setUpdateChecking(true);
+  const checkForUpdates = async (silent = false) => {
+    if (!silent) setUpdateChecking(true);
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY },
-        body: JSON.stringify({ current_version: APP_VERSION }),
-      });
-      const data = await response.json();
-      if (data.update_available) {
-        setUpdateAvailable({ version: data.version, notes: data.notes || '', mandatory: data.mandatory || false });
-        setShowUpdateModal(true);
-      } else {
-        toast.success('Vous avez la dernière version !');
+      // Use Tauri native updater for seamless silent updates
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+
+      if (update) {
+        console.log('[Update] New version available:', update.version);
+        setUpdateAvailable({
+          version: update.version,
+          notes: update.body || 'Ameliorations et corrections',
+          mandatory: false
+        });
+        if (!silent) {
+          setShowUpdateModal(true);
+        } else {
+          // Silent mode: auto-install in background
+          toast.info(`Mise a jour ${update.version} disponible, installation...`);
+          await installUpdateSilent(update);
+        }
+      } else if (!silent) {
+        toast.success('Vous avez la derniere version !');
       }
     } catch (error) {
-      console.error('Erreur:', error);
+      console.error('[Update] Check error:', error);
+      // Fallback to API check
+      if (!silent) {
+        try {
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_ANON_KEY}`, apikey: SUPABASE_ANON_KEY },
+            body: JSON.stringify({ current_version: APP_VERSION }),
+          });
+          const data = await response.json();
+          if (data.update_available) {
+            setUpdateAvailable({ version: data.version, notes: data.notes || '', mandatory: data.mandatory || false });
+            setShowUpdateModal(true);
+          }
+        } catch { /* ignore fallback errors */ }
+      }
     } finally {
-      setUpdateChecking(false);
+      if (!silent) setUpdateChecking(false);
+    }
+  };
+
+  // Silent update installation - runs in background
+  const installUpdateSilent = async (update: Awaited<ReturnType<typeof import('@tauri-apps/plugin-updater').check>>) => {
+    if (!update) return;
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case 'Started':
+            contentLength = event.data.contentLength || 0;
+            console.log(`[Update] Downloading ${contentLength} bytes`);
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength;
+            const percent = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
+            setUpdateProgress(percent);
+            break;
+          case 'Finished':
+            console.log('[Update] Download complete');
+            break;
+        }
+      });
+
+      toast.success('Mise a jour installee ! Redemarrage...');
+      // Relaunch app after short delay
+      setTimeout(async () => {
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        await relaunch();
+      }, 1500);
+    } catch (error) {
+      console.error('[Update] Install error:', error);
+      toast.error('Erreur de mise a jour');
     }
   };
 
@@ -539,17 +599,28 @@ function App() {
     if (!updateAvailable) return;
     setUpdateDownloading(true);
     setUpdateProgress(0);
-    const progressInterval = setInterval(() => setUpdateProgress((prev) => prev >= 90 ? prev : prev + 10), 500);
 
     try {
+      // Try native Tauri updater first
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+
+      if (update) {
+        await installUpdateSilent(update);
+      } else {
+        // Fallback: open download page
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest.msi');
+        setUpdateProgress(100);
+        setTimeout(() => { setShowUpdateModal(false); setUpdateDownloading(false); }, 1500);
+      }
+    } catch (error) {
+      console.error('[Update] Error:', error);
+      // Fallback to browser download
       const { open } = await import('@tauri-apps/plugin-shell');
       await open('https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_latest.msi');
-      clearInterval(progressInterval);
       setUpdateProgress(100);
       setTimeout(() => { setShowUpdateModal(false); setUpdateDownloading(false); }, 1500);
-    } catch {
-      clearInterval(progressInterval);
-      setUpdateDownloading(false);
     }
   };
 
@@ -599,8 +670,8 @@ function App() {
     // Scripts now loaded via useScripts() hook - Local-First
     // Sync scripts from cloud on startup (background)
     syncScripts().catch(console.error);
-    // Auto-check for updates on startup
-    setTimeout(() => checkForUpdates(), 3000);
+    // Auto-check for updates silently on startup (background)
+    setTimeout(() => checkForUpdates(true), 5000);
     const interval = setInterval(fetchData, 30000);
     // Poll for remote executions every 10 seconds
     const execInterval = setInterval(checkRemoteExecutions, 10000);

@@ -65,7 +65,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://api.microdiag.cybtek.fr/functions/v1/check-update?target={{target}}&current_version={{current_version}}"
+        "https://app.microdiag.cybtek.fr/downloads/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyQTI3QTUxQzBBN0E0NzQKUldSMHBLZkFVWHFpTXYyRE0yOEpGQTJtalZVdjZZTTliajlBU0hQa0hUWjE2Ylp6NjFCSUZGQkUK"
     }
