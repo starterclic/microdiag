@@ -5,7 +5,6 @@
 
 use serde::Serialize;
 use sysinfo::{System, Components, Networks, Process, Pid};
-use std::collections::HashMap;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -357,7 +356,7 @@ pub fn analyze_processes(sys: &System) -> ProcessAnalysis {
     let total_memory = sys.total_memory() as f64;
 
     let mut process_list: Vec<ProcessInfo> = processes.iter().map(|(pid, proc)| {
-        let name = proc.name().to_string_lossy().to_string();
+        let name = proc.name().to_string();
         let cpu = proc.cpu_usage();
         let mem_bytes = proc.memory() as f64;
         let mem_mb = mem_bytes / 1_048_576.0;
