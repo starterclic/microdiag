@@ -229,7 +229,10 @@ export function GodModePage({ metrics }: GodModePageProps) {
         </div>
         <div className="gm-score">
           <span className="score-label">Health Score</span>
-          <span className={`score-value ${getScoreColor(healthScore)}`}>{healthScore}</span>
+          <div className="score-display">
+            <span className={`score-value ${getScoreColor(healthScore)}`}>{healthScore}</span>
+            <span className="score-max">/100</span>
+          </div>
         </div>
       </div>
 

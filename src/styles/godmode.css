@@ -48,10 +48,22 @@
   text-transform: uppercase;
 }
 
+.score-display {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
 .score-value {
   font-size: 2.5rem;
   font-weight: 800;
   font-family: 'Courier New', monospace;
+}
+
+.score-max {
+  font-size: 1rem;
+  color: #64748b;
+  font-weight: 400;
 }
 
 /* Tabs */

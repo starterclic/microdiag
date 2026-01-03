@@ -288,6 +288,58 @@ fn get_process_description(name: &str, cpu: f32, mem_mb: f64) -> String {
 // TEMPERATURE ANALYSIS
 // ============================================
 
+#[cfg(windows)]
+fn get_wmi_cpu_temp() -> Option<f32> {
+    use std::process::Command;
+
+    // Try MSAcpi_ThermalZoneTemperature first (works on most laptops)
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile", "-Command",
+            "Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace 'root/wmi' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty CurrentTemperature"
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // WMI returns temp in tenths of Kelvin, convert to Celsius
+        if let Ok(tenths_kelvin) = stdout.trim().parse::<f32>() {
+            let celsius = (tenths_kelvin / 10.0) - 273.15;
+            if celsius > 0.0 && celsius < 120.0 {
+                return Some(celsius);
+            }
+        }
+    }
+
+    // Fallback: Try Win32_TemperatureProbe
+    let output2 = Command::new("powershell")
+        .args([
+            "-NoProfile", "-Command",
+            "Get-CimInstance Win32_TemperatureProbe -ErrorAction SilentlyContinue | Where-Object { $_.CurrentReading -gt 0 } | Select-Object -First 1 -ExpandProperty CurrentReading"
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+
+    if output2.status.success() {
+        let stdout = String::from_utf8_lossy(&output2.stdout);
+        if let Ok(temp) = stdout.trim().parse::<f32>() {
+            if temp > 0.0 && temp < 120.0 {
+                return Some(temp);
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(not(windows))]
+fn get_wmi_cpu_temp() -> Option<f32> {
+    None
+}
+
 pub fn get_temperatures() -> TemperatureInfo {
     let components = Components::new_with_refreshed_list();
     let mut cpu_temp: Option<f32> = None;
@@ -295,6 +347,7 @@ pub fn get_temperatures() -> TemperatureInfo {
     let mut disk_temp: Option<f32> = None;
     let mut component_temps: Vec<ComponentTemp> = Vec::new();
 
+    // First try sysinfo components
     for component in components.iter() {
         let name = component.label().to_lowercase();
         let temp = component.temperature();
@@ -325,6 +378,22 @@ pub fn get_temperatures() -> TemperatureInfo {
             gpu_temp = Some(temp);
         } else if name.contains("disk") || name.contains("nvme") || name.contains("ssd") {
             disk_temp = Some(temp);
+        }
+    }
+
+    // Fallback to WMI on Windows if sysinfo didn't find CPU temp
+    if cpu_temp.is_none() {
+        if let Some(wmi_temp) = get_wmi_cpu_temp() {
+            cpu_temp = Some(wmi_temp);
+            component_temps.push(ComponentTemp {
+                name: "CPU (WMI)".to_string(),
+                temp: wmi_temp,
+                max_temp: 100.0,
+                status: if wmi_temp < 50.0 { "excellent" }
+                        else if wmi_temp < 70.0 { "normal" }
+                        else if wmi_temp < 85.0 { "warm" }
+                        else { "hot" }.to_string(),
+            });
         }
     }
 

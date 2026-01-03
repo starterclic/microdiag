@@ -98,7 +98,7 @@ export const RECOMMENDED_APPS: Record<string, Array<{ id: string; name: string; 
   "Pro & Dev": [
     { id: 'Microsoft.VisualStudioCode', name: 'VS Code', desc: 'Editeur de code Microsoft' },
     { id: 'Git.Git', name: 'Git', desc: 'Controle de version' },
-    { id: 'AnyDeskSoftwareGmbH.AnyDesk', name: 'AnyDesk', desc: 'Bureau a distance' },
+    { id: 'RustDesk.RustDesk', name: 'RustDesk', desc: 'Support a distance Microdiag' },
     { id: 'PuTTY.PuTTY', name: 'PuTTY', desc: 'Client SSH/Telnet' },
   ],
 };

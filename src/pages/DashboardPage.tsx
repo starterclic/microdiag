@@ -205,10 +205,20 @@ export function DashboardPage({
 
   // Calculate health score
   const healthScore = useMemo(() => {
-    if (diagnostic?.overall_score) return diagnostic.overall_score;
-    if (health?.score) return health.score;
-    return 0;
-  }, [diagnostic, health]);
+    // Priority: diagnostic overall_score > health.score > calculate from metrics
+    if (typeof diagnostic?.overall_score === 'number') return diagnostic.overall_score;
+    if (typeof health?.score === 'number') return health.score;
+    // Fallback calculation from metrics if both are unavailable
+    if (metrics) {
+      let score = 100;
+      if (metrics.cpu_usage > 80) score -= 15;
+      if (metrics.memory_percent > 85) score -= 20;
+      const disk = metrics.disks[0];
+      if (disk && disk.percent > 90) score -= 25;
+      return Math.max(0, score);
+    }
+    return 70; // Default reasonable score while loading
+  }, [diagnostic, health, metrics]);
 
   const healthColor = useMemo(() => {
     if (healthScore >= 85) return '#10b981';
