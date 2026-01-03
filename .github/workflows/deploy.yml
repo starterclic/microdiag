@@ -123,7 +123,7 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "$SIGNATURE",
-                "url": "https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_${VERSION}_x64_en-US.msi.zip"
+                "url": "https://app.microdiag.cybtek.fr/downloads/MicrodiagSentinel_${VERSION}_x64_en-US.msi"
               }
             }
           }
