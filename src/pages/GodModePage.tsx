@@ -213,7 +213,7 @@ export function GodModePage({ metrics }: GodModePageProps) {
       <div className="page god-mode-page">
         <div className="loading-state">
           <div className="spinner"></div>
-          <p>Chargement God Mode...</p>
+          <p>Chargement Mode Expert...</p>
         </div>
       </div>
     );
