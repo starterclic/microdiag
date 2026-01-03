@@ -309,7 +309,17 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
     // This is done via PowerShell as WMI root/wmi access is complex
     if let Some(smart_data) = get_smart_attributes_powershell() {
         for disk in &mut disks {
-            if let Some(attrs) = smart_data.get(&disk.model) {
+            // Match by device_id: "\\\\.\\PHYSICALDRIVE0" -> "PHYSICALDRIVE0"
+            let normalized_device_id = disk.device_id
+                .replace("\\\\.\\", "")
+                .to_uppercase();
+
+            // Try to find matching SMART data
+            let attrs = smart_data.iter()
+                .find(|(key, _)| key.to_uppercase().contains(&normalized_device_id))
+                .map(|(_, v)| v);
+
+            if let Some(attrs) = attrs {
                 disk.temperature_c = attrs.temperature;
                 disk.power_on_hours = attrs.power_on_hours;
                 disk.power_on_count = attrs.power_on_count;
@@ -352,23 +362,48 @@ struct SmartAttributes {
 fn get_smart_attributes_powershell() -> Option<HashMap<String, SmartAttributes>> {
     use std::process::Command;
 
-    // PowerShell script to get SMART data
+    // PowerShell script to get SMART data via WMI
     let ps_script = r#"
-$disks = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue
-$result = @{}
-foreach ($disk in $disks) {
-    $instance = $disk.InstanceName -replace '_0$',''
-    $data = $disk.VendorSpecific
-    if ($data -and $data.Length -ge 362) {
-        # SMART attributes are at specific offsets
-        # Temperature (attr 194): offset 2+194*12 = 2330... simplified approach
-        $attrs = @{
-            'raw' = [Convert]::ToBase64String($data[0..361])
+try {
+    $disks = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue
+    $result = @{}
+
+    foreach ($disk in $disks) {
+        $instance = $disk.InstanceName -replace '_0$',''
+        $data = $disk.VendorSpecific
+
+        if ($data -and $data.Length -ge 362) {
+            # Parse SMART attributes (each attribute = 12 bytes)
+            # Structure: [ID(1)][Flags(2)][Value(1)][Worst(1)][Reserved(1)][RawValue(6)]
+            $attrs = @{}
+
+            for ($i = 2; $i -lt 362; $i += 12) {
+                $attrId = $data[$i]
+                if ($attrId -eq 0) { continue }
+
+                # Extract raw value (6 bytes, little-endian)
+                $rawValue = [BitConverter]::ToUInt32($data, $i + 5)
+
+                # Map common SMART attributes
+                switch ($attrId) {
+                    5 { $attrs['reallocated_sectors'] = $rawValue }
+                    9 { $attrs['power_on_hours'] = $rawValue }
+                    12 { $attrs['power_cycle_count'] = $rawValue }
+                    194 { $attrs['temperature'] = [Math]::Min($rawValue -band 0xFF, 100) }
+                    196 { $attrs['realloc_events'] = $rawValue }
+                    197 { $attrs['pending_sectors'] = $rawValue }
+                    198 { $attrs['uncorrectable'] = $rawValue }
+                }
+            }
+
+            $result[$instance] = $attrs
         }
-        $result[$instance] = $attrs
     }
+
+    $result | ConvertTo-Json -Compress
+} catch {
+    @{} | ConvertTo-Json
 }
-$result | ConvertTo-Json -Compress
 "#;
 
     let output = Command::new("powershell")
@@ -381,9 +416,31 @@ $result | ConvertTo-Json -Compress
         return None;
     }
 
-    // For now, return None - SMART parsing is complex
-    // The basic info from Win32_DiskDrive is usually sufficient
-    None
+    let json_str = String::from_utf8(output.stdout).ok()?;
+    let data: serde_json::Value = serde_json::from_str(json_str.trim()).ok()?;
+
+    if !data.is_object() {
+        return None;
+    }
+
+    let mut result = HashMap::new();
+
+    for (instance_name, attrs_obj) in data.as_object()? {
+        let attrs = attrs_obj.as_object()?;
+
+        let smart_attrs = SmartAttributes {
+            temperature: attrs.get("temperature").and_then(|v| v.as_u64()).map(|v| v as u8),
+            power_on_hours: attrs.get("power_on_hours").and_then(|v| v.as_u64()),
+            power_on_count: attrs.get("power_cycle_count").and_then(|v| v.as_u64()).map(|v| v as u32),
+            reallocated_sectors: attrs.get("reallocated_sectors").and_then(|v| v.as_u64()).map(|v| v as u32),
+            pending_sectors: attrs.get("pending_sectors").and_then(|v| v.as_u64()).map(|v| v as u32),
+            uncorrectable_errors: attrs.get("uncorrectable").and_then(|v| v.as_u64()).map(|v| v as u32),
+        };
+
+        result.insert(instance_name.clone(), smart_attrs);
+    }
+
+    Some(result)
 }
 
 #[cfg(windows)]
