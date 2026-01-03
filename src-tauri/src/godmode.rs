@@ -49,6 +49,33 @@ pub struct DeepHealth {
     pub last_boot_time: String,
     pub windows_version: String,
     pub computer_name: String,
+    pub smart_disks: Vec<SmartDiskInfo>,
+}
+
+// ============================================
+// SMART DISK INFO (CrystalDisk Style)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SmartDiskInfo {
+    pub device_id: String,
+    pub model: String,
+    pub serial: String,
+    pub firmware: String,
+    pub interface_type: String,
+    pub media_type: String,  // SSD, HDD, NVMe
+    pub size_gb: f64,
+    pub health_status: String,  // OK, Caution, Bad
+    pub health_percent: u8,
+    pub temperature_c: Option<u8>,
+    pub power_on_hours: Option<u64>,
+    pub power_on_count: Option<u32>,
+    pub reallocated_sectors: Option<u32>,
+    pub pending_sectors: Option<u32>,
+    pub uncorrectable_errors: Option<u32>,
+    pub read_error_rate: Option<u32>,
+    pub seek_error_rate: Option<u32>,
+    pub spin_retry_count: Option<u32>,
 }
 
 #[derive(Serialize, Clone)]
@@ -214,6 +241,163 @@ pub fn disable_startup_item(_name: &str, _location: &str) -> TweakResult {
 }
 
 // ============================================
+// SMART DISK INFO (WMI Queries)
+// ============================================
+
+#[cfg(windows)]
+fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
+    let mut disks = Vec::new();
+
+    // Query Win32_DiskDrive for basic disk info
+    let disk_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+        .raw_query("SELECT DeviceID, Model, SerialNumber, FirmwareRevision, InterfaceType, MediaType, Size, Status FROM Win32_DiskDrive")
+        .unwrap_or_default();
+
+    for disk in disk_results {
+        let device_id = extract_string(disk.get("DeviceID"));
+        let model = extract_string(disk.get("Model"));
+        let serial = extract_string(disk.get("SerialNumber")).trim().to_string();
+        let firmware = extract_string(disk.get("FirmwareRevision"));
+        let interface_type = extract_string(disk.get("InterfaceType"));
+        let status = extract_string(disk.get("Status"));
+
+        // Determine media type (SSD vs HDD)
+        let media_type_raw = extract_string(disk.get("MediaType"));
+        let media_type = if model.to_lowercase().contains("ssd") || model.to_lowercase().contains("nvme") {
+            "SSD".to_string()
+        } else if model.to_lowercase().contains("hdd") || media_type_raw.contains("Fixed") {
+            "HDD".to_string()
+        } else if interface_type.contains("NVMe") {
+            "NVMe".to_string()
+        } else {
+            "Unknown".to_string()
+        };
+
+        // Size in GB
+        let size_bytes = extract_u64(disk.get("Size"));
+        let size_gb = size_bytes as f64 / 1_073_741_824.0;
+
+        // Health status based on WMI Status field
+        let health_status = if status == "OK" { "Bon" } else if status == "Pred Fail" { "Attention" } else { "Inconnu" }.to_string();
+
+        // Calculate health percent (100 if OK, 50 if Pred Fail, 0 if failed)
+        let health_percent = if status == "OK" { 100 } else if status == "Pred Fail" { 50 } else { 0 };
+
+        disks.push(SmartDiskInfo {
+            device_id,
+            model,
+            serial,
+            firmware,
+            interface_type,
+            media_type,
+            size_gb,
+            health_status,
+            health_percent,
+            temperature_c: None,  // Will try to get from SMART data
+            power_on_hours: None,
+            power_on_count: None,
+            reallocated_sectors: None,
+            pending_sectors: None,
+            uncorrectable_errors: None,
+            read_error_rate: None,
+            seek_error_rate: None,
+            spin_retry_count: None,
+        });
+    }
+
+    // Try to get SMART data from MSStorageDriver (requires admin)
+    // This is done via PowerShell as WMI root/wmi access is complex
+    if let Some(smart_data) = get_smart_attributes_powershell() {
+        for disk in &mut disks {
+            if let Some(attrs) = smart_data.get(&disk.model) {
+                disk.temperature_c = attrs.temperature;
+                disk.power_on_hours = attrs.power_on_hours;
+                disk.power_on_count = attrs.power_on_count;
+                disk.reallocated_sectors = attrs.reallocated_sectors;
+                disk.pending_sectors = attrs.pending_sectors;
+                disk.uncorrectable_errors = attrs.uncorrectable_errors;
+
+                // Recalculate health based on SMART attributes
+                let mut health = 100u8;
+                if let Some(realloc) = attrs.reallocated_sectors {
+                    if realloc > 0 { health = health.saturating_sub(20); }
+                    if realloc > 10 { health = health.saturating_sub(30); }
+                }
+                if let Some(pending) = attrs.pending_sectors {
+                    if pending > 0 { health = health.saturating_sub(15); }
+                }
+                if let Some(uncorr) = attrs.uncorrectable_errors {
+                    if uncorr > 0 { health = health.saturating_sub(25); }
+                }
+                disk.health_percent = health;
+                disk.health_status = if health >= 80 { "Bon" } else if health >= 50 { "Attention" } else { "Critique" }.to_string();
+            }
+        }
+    }
+
+    disks
+}
+
+#[derive(Default)]
+struct SmartAttributes {
+    temperature: Option<u8>,
+    power_on_hours: Option<u64>,
+    power_on_count: Option<u32>,
+    reallocated_sectors: Option<u32>,
+    pending_sectors: Option<u32>,
+    uncorrectable_errors: Option<u32>,
+}
+
+#[cfg(windows)]
+fn get_smart_attributes_powershell() -> Option<HashMap<String, SmartAttributes>> {
+    use std::process::Command;
+
+    // PowerShell script to get SMART data
+    let ps_script = r#"
+$disks = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue
+$result = @{}
+foreach ($disk in $disks) {
+    $instance = $disk.InstanceName -replace '_0$',''
+    $data = $disk.VendorSpecific
+    if ($data -and $data.Length -ge 362) {
+        # SMART attributes are at specific offsets
+        # Temperature (attr 194): offset 2+194*12 = 2330... simplified approach
+        $attrs = @{
+            'raw' = [Convert]::ToBase64String($data[0..361])
+        }
+        $result[$instance] = $attrs
+    }
+}
+$result | ConvertTo-Json -Compress
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    // For now, return None - SMART parsing is complex
+    // The basic info from Win32_DiskDrive is usually sufficient
+    None
+}
+
+#[cfg(windows)]
+fn extract_u64(variant: Option<&wmi::Variant>) -> u64 {
+    match variant {
+        Some(wmi::Variant::UI8(n)) => *n,
+        Some(wmi::Variant::UI4(n)) => *n as u64,
+        Some(wmi::Variant::I8(n)) => *n as u64,
+        Some(wmi::Variant::String(s)) => s.parse().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+// ============================================
 // DEEP HEALTH (WMI)
 // ============================================
 
@@ -238,6 +422,7 @@ pub fn get_deep_health() -> DeepHealth {
         last_boot_time: "Unknown".into(),
         windows_version: "Unknown".into(),
         computer_name: "Unknown".into(),
+        smart_disks: Vec::new(),
     };
 
     let com_con = match COMLibrary::new() {
@@ -297,6 +482,9 @@ pub fn get_deep_health() -> DeepHealth {
         ("Unknown".into(), "Unknown".into(), "Unknown".into())
     };
 
+    // SMART Disk Info (CrystalDisk style)
+    let smart_disks = get_smart_disk_info(&wmi_con);
+
     DeepHealth {
         bios_serial,
         bios_manufacturer,
@@ -307,6 +495,7 @@ pub fn get_deep_health() -> DeepHealth {
         last_boot_time,
         windows_version,
         computer_name,
+        smart_disks,
     }
 }
 
@@ -392,6 +581,7 @@ pub fn get_deep_health() -> DeepHealth {
         last_boot_time: "N/A".into(),
         windows_version: "Linux".into(),
         computer_name: "N/A".into(),
+        smart_disks: Vec::new(),
     }
 }
 

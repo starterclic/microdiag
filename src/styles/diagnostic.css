@@ -1005,6 +1005,161 @@
 }
 
 /* ============================================
+   SMART Disk Card (CrystalDisk Style)
+   ============================================ */
+.smart-card {
+  grid-column: span 2;
+}
+
+.smart-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.smart-subtitle {
+  font-size: 12px;
+  color: #666;
+  background: rgba(255, 107, 0, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+  color: #ff6b00;
+}
+
+.smart-disks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.smart-disk-item {
+  background: rgba(30, 30, 35, 0.6);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.smart-disk-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.smart-disk-header .disk-icon {
+  font-size: 24px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 107, 0, 0.15);
+  border-radius: 10px;
+}
+
+.smart-disk-header .disk-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.smart-disk-header .disk-model {
+  font-weight: 600;
+  color: #fff;
+  font-size: 14px;
+}
+
+.smart-disk-header .disk-meta {
+  font-size: 12px;
+  color: #888;
+}
+
+.disk-health-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 10px;
+  min-width: 70px;
+}
+
+.disk-health-badge.good {
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.disk-health-badge.warning {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.disk-health-badge.critical {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.disk-health-badge .health-percent {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.disk-health-badge.good .health-percent { color: #10b981; }
+.disk-health-badge.warning .health-percent { color: #f59e0b; }
+.disk-health-badge.critical .health-percent { color: #ef4444; }
+
+.disk-health-badge .health-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.smart-attributes {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.smart-attr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.smart-attr.warning {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.smart-attr .attr-icon {
+  font-size: 14px;
+}
+
+.smart-attr .attr-label {
+  color: #888;
+}
+
+.smart-attr .attr-value {
+  color: #fff;
+  font-weight: 500;
+}
+
+.disk-health-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.disk-health-bar .health-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ============================================
    Responsive
    ============================================ */
 @media (max-width: 768px) {

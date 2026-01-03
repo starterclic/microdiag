@@ -35,6 +35,29 @@ export interface DeepHealth {
   last_boot_time: string;
   windows_version: string;
   computer_name: string;
+  smart_disks: SmartDiskInfo[];
+}
+
+// CrystalDisk-style SMART info
+export interface SmartDiskInfo {
+  device_id: string;
+  model: string;
+  serial: string;
+  firmware: string;
+  interface_type: string;
+  media_type: string;  // SSD, HDD, NVMe
+  size_gb: number;
+  health_status: string;  // Bon, Attention, Critique
+  health_percent: number;
+  temperature_c: number | null;
+  power_on_hours: number | null;
+  power_on_count: number | null;
+  reallocated_sectors: number | null;
+  pending_sectors: number | null;
+  uncorrectable_errors: number | null;
+  read_error_rate: number | null;
+  seek_error_rate: number | null;
+  spin_retry_count: number | null;
 }
 
 export interface BatteryHealth {

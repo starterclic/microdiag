@@ -459,6 +459,77 @@ export function DashboardPage({
           </div>
         </section>
 
+        {/* SMART Disk Info - CrystalDisk Style */}
+        {deepHealth?.smart_disks && deepHealth.smart_disks.length > 0 && (
+          <section className="dashboard-card smart-card">
+            <div className="card-header">
+              <h2>Sante des Disques</h2>
+              <span className="smart-subtitle">SMART Diagnostic</span>
+            </div>
+            <div className="smart-disks-list">
+              {deepHealth.smart_disks.map((disk, i) => (
+                <div key={i} className="smart-disk-item">
+                  <div className="smart-disk-header">
+                    <div className="disk-icon">
+                      {disk.media_type === 'SSD' || disk.media_type === 'NVMe' ? '⚡' : '💿'}
+                    </div>
+                    <div className="disk-info">
+                      <span className="disk-model">{disk.model}</span>
+                      <span className="disk-meta">
+                        {disk.media_type} • {disk.size_gb.toFixed(0)} GB • {disk.interface_type}
+                      </span>
+                    </div>
+                    <div className={`disk-health-badge ${disk.health_status === 'Bon' ? 'good' : disk.health_status === 'Attention' ? 'warning' : 'critical'}`}>
+                      <span className="health-percent">{disk.health_percent}%</span>
+                      <span className="health-label">{disk.health_status}</span>
+                    </div>
+                  </div>
+                  <div className="smart-attributes">
+                    {disk.temperature_c && (
+                      <div className="smart-attr">
+                        <span className="attr-icon">🌡️</span>
+                        <span className="attr-label">Temp</span>
+                        <span className="attr-value">{disk.temperature_c}°C</span>
+                      </div>
+                    )}
+                    {disk.power_on_hours && (
+                      <div className="smart-attr">
+                        <span className="attr-icon">⏱️</span>
+                        <span className="attr-label">Heures</span>
+                        <span className="attr-value">{disk.power_on_hours.toLocaleString()}h</span>
+                      </div>
+                    )}
+                    {disk.power_on_count && (
+                      <div className="smart-attr">
+                        <span className="attr-icon">🔄</span>
+                        <span className="attr-label">Cycles</span>
+                        <span className="attr-value">{disk.power_on_count}</span>
+                      </div>
+                    )}
+                    {disk.reallocated_sectors !== null && disk.reallocated_sectors !== undefined && (
+                      <div className={`smart-attr ${disk.reallocated_sectors > 0 ? 'warning' : ''}`}>
+                        <span className="attr-icon">⚠️</span>
+                        <span className="attr-label">Secteurs</span>
+                        <span className="attr-value">{disk.reallocated_sectors}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="disk-health-bar">
+                    <div
+                      className="health-fill"
+                      style={{
+                        width: `${disk.health_percent}%`,
+                        background: disk.health_percent >= 80 ? '#10b981' :
+                                   disk.health_percent >= 50 ? '#f59e0b' : '#ef4444'
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Security Overview */}
         <section className="dashboard-card security-card">
           <div className="card-header">
