@@ -213,6 +213,64 @@ export interface AppBootImpact {
 }
 
 // ============================================
+// v3.4.0 - CVE SCANNER & FAILURE PREDICTION
+// ============================================
+
+export interface CveReport {
+  total_vulnerabilities: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  vulnerable_apps: VulnerableApp[];
+  scan_date: string;
+  recommendation: string;
+}
+
+export interface VulnerableApp {
+  name: string;
+  version: string;
+  cve_id: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  description: string;
+  fix_version: string | null;
+  cvss_score: number;
+}
+
+export interface FailurePrediction {
+  disk_risk: DiskRisk;
+  ram_risk: RamRisk;
+  overall_risk_percent: number;
+  predicted_issues: PredictedIssue[];
+  recommendations: string[];
+}
+
+export interface DiskRisk {
+  model: string;
+  health_percent: number;
+  risk_level: string;
+  estimated_lifespan_days: number | null;
+  warning_signs: string[];
+}
+
+export interface RamRisk {
+  total_gb: number;
+  risk_level: string;
+  error_count: number;
+  last_test_date: string | null;
+  warning_signs: string[];
+}
+
+export interface PredictedIssue {
+  component: string;
+  issue: string;
+  probability_percent: number;
+  timeframe: string;
+  impact: string;
+  prevention: string;
+}
+
+// ============================================
 // API FUNCTIONS
 // ============================================
 
@@ -282,6 +340,21 @@ export async function runSpeedtest(): Promise<SpeedtestResult> {
  */
 export async function analyzeBootTime(): Promise<BootAnalysis> {
   return invoke<BootAnalysis>('analyze_boot_time');
+}
+
+/**
+ * Scan for CVE vulnerabilities in installed software
+ */
+export async function scanCve(): Promise<CveReport> {
+  return invoke<CveReport>('scan_cve');
+}
+
+/**
+ * Predict potential hardware failures
+ * Based on SMART data and system diagnostics
+ */
+export async function predictFailures(): Promise<FailurePrediction> {
+  return invoke<FailurePrediction>('predict_failures');
 }
 
 // ============================================
@@ -551,4 +624,86 @@ export function getSpeedtestIcon(grade: string): string {
     default:
       return '🐢';
   }
+}
+
+// ============================================
+// v3.4.0 - CVE & FAILURE PREDICTION HELPERS
+// ============================================
+
+/**
+ * Get CVE severity color
+ */
+export function getCveSeverityColor(severity: string): string {
+  switch (severity) {
+    case 'CRITICAL':
+      return '#dc2626';
+    case 'HIGH':
+      return '#ea580c';
+    case 'MEDIUM':
+      return '#f59e0b';
+    case 'LOW':
+      return '#22c55e';
+    default:
+      return '#6b7280';
+  }
+}
+
+/**
+ * Get CVE severity icon
+ */
+export function getCveSeverityIcon(severity: string): string {
+  switch (severity) {
+    case 'CRITICAL':
+      return '🔴';
+    case 'HIGH':
+      return '🟠';
+    case 'MEDIUM':
+      return '🟡';
+    case 'LOW':
+      return '🟢';
+    default:
+      return '⚪';
+  }
+}
+
+/**
+ * Get risk level color
+ */
+export function getRiskLevelColor(level: string): string {
+  switch (level.toLowerCase()) {
+    case 'critique':
+    case 'critical':
+      return '#dc2626';
+    case 'eleve':
+    case 'high':
+      return '#ea580c';
+    case 'moyen':
+    case 'medium':
+      return '#f59e0b';
+    case 'faible':
+    case 'low':
+      return '#22c55e';
+    default:
+      return '#6b7280';
+  }
+}
+
+/**
+ * Format CVSS score
+ */
+export function formatCvssScore(score: number): string {
+  if (score >= 9.0) return `${score.toFixed(1)} (Critique)`;
+  if (score >= 7.0) return `${score.toFixed(1)} (Eleve)`;
+  if (score >= 4.0) return `${score.toFixed(1)} (Moyen)`;
+  return `${score.toFixed(1)} (Faible)`;
+}
+
+/**
+ * Get overall risk status
+ */
+export function getRiskStatus(percent: number): string {
+  if (percent >= 70) return 'Critique - Action immediate requise';
+  if (percent >= 40) return 'Eleve - Surveillance recommandee';
+  if (percent >= 20) return 'Modere - A surveiller';
+  return 'Faible - Systeme en bonne sante';
 }

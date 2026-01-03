@@ -1726,3 +1726,281 @@ pub fn analyze_boot_time() -> BootAnalysis {
         last_boot_time: String::new(),
     }
 }
+
+// ============================================
+// CVE VULNERABILITY SCANNER (v3.4.0)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct CveReport {
+    pub total_vulnerabilities: u32,
+    pub critical: u32,
+    pub high: u32,
+    pub medium: u32,
+    pub low: u32,
+    pub vulnerable_apps: Vec<VulnerableApp>,
+    pub scan_date: String,
+    pub recommendation: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct VulnerableApp {
+    pub name: String,
+    pub version: String,
+    pub cve_id: String,
+    pub severity: String,
+    pub description: String,
+    pub fix_version: Option<String>,
+    pub cvss_score: f32,
+}
+
+fn get_known_vulnerabilities() -> Vec<(&'static str, &'static str, &'static str, &'static str, f32, &'static str)> {
+    vec![
+        ("7-Zip", "23.01", "CVE-2023-31102", "HIGH", 7.8, "Execution de code via archive 7z"),
+        ("WinRAR", "6.23", "CVE-2023-38831", "CRITICAL", 9.8, "Execution de code via ZIP malveillant"),
+        ("VLC", "3.0.18", "CVE-2023-47359", "HIGH", 7.8, "Buffer overflow dans decodeur MP4"),
+        ("Firefox", "115.0", "CVE-2023-4863", "CRITICAL", 9.6, "Heap overflow dans WebP"),
+        ("Chrome", "116.0", "CVE-2023-4863", "CRITICAL", 9.6, "Heap overflow dans WebP"),
+        ("Adobe Reader", "23.003", "CVE-2023-26369", "CRITICAL", 9.8, "Execution de code arbitraire"),
+        ("Zoom", "5.14.0", "CVE-2023-28597", "HIGH", 8.8, "Elevation de privileges"),
+        ("PuTTY", "0.79", "CVE-2024-31497", "CRITICAL", 9.8, "Fuite cle privee ECDSA"),
+        ("Java", "8u381", "CVE-2023-22045", "MEDIUM", 5.3, "Vulnerabilite Hotspot"),
+        ("Python", "3.11.4", "CVE-2023-40217", "HIGH", 7.5, "Bypass TLS"),
+        ("Node.js", "18.17.0", "CVE-2023-32002", "HIGH", 7.5, "Permissions bypass"),
+        ("Git", "2.41.0", "CVE-2023-29007", "HIGH", 7.8, "Execution code via clone"),
+        ("Notepad++", "8.5.4", "CVE-2023-40031", "HIGH", 7.8, "Buffer overflow"),
+        ("KeePass", "2.54", "CVE-2023-32784", "MEDIUM", 5.5, "Extraction master password"),
+        ("Thunderbird", "115.0", "CVE-2023-4863", "CRITICAL", 9.6, "Heap overflow WebP"),
+    ]
+}
+
+fn parse_version(version: &str) -> Vec<u32> {
+    version.split(|c: char| !c.is_numeric())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse().ok())
+        .collect()
+}
+
+fn version_below(installed: &str, vulnerable_below: &str) -> bool {
+    let inst = parse_version(installed);
+    let vuln = parse_version(vulnerable_below);
+    for i in 0..vuln.len().max(inst.len()) {
+        let a = inst.get(i).copied().unwrap_or(0);
+        let b = vuln.get(i).copied().unwrap_or(0);
+        if a < b { return true; }
+        if a > b { return false; }
+    }
+    false
+}
+
+#[cfg(windows)]
+pub fn scan_cve_vulnerabilities() -> CveReport {
+    let apps = crate::godmode::get_installed_apps_native();
+    let vulns = get_known_vulnerabilities();
+    let mut vulnerable_apps = Vec::new();
+    let (mut critical, mut high, mut medium, mut low) = (0u32, 0u32, 0u32, 0u32);
+
+    for app in &apps {
+        for (pattern, vuln_ver, cve, severity, cvss, desc) in &vulns {
+            if app.name.to_lowercase().contains(&pattern.to_lowercase())
+               && !app.version.is_empty()
+               && version_below(&app.version, vuln_ver) {
+                match *severity {
+                    "CRITICAL" => critical += 1,
+                    "HIGH" => high += 1,
+                    "MEDIUM" => medium += 1,
+                    _ => low += 1,
+                }
+                vulnerable_apps.push(VulnerableApp {
+                    name: app.name.clone(),
+                    version: app.version.clone(),
+                    cve_id: cve.to_string(),
+                    severity: severity.to_string(),
+                    description: desc.to_string(),
+                    fix_version: Some(vuln_ver.to_string()),
+                    cvss_score: *cvss,
+                });
+            }
+        }
+    }
+
+    vulnerable_apps.sort_by(|a, b| b.cvss_score.partial_cmp(&a.cvss_score).unwrap_or(std::cmp::Ordering::Equal));
+    let total = critical + high + medium + low;
+
+    let recommendation = if critical > 0 {
+        format!("URGENT: {} vulnerabilites critiques! Mettez a jour immediatement.", critical)
+    } else if high > 0 {
+        format!("{} vulnerabilites importantes. Mises a jour recommandees.", high)
+    } else if total > 0 {
+        "Vulnerabilites mineures detectees. Pensez a mettre a jour.".to_string()
+    } else {
+        "Aucune vulnerabilite connue. Systeme a jour!".to_string()
+    };
+
+    CveReport {
+        total_vulnerabilities: total, critical, high, medium, low,
+        vulnerable_apps,
+        scan_date: chrono::Local::now().format("%d/%m/%Y %H:%M").to_string(),
+        recommendation,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn scan_cve_vulnerabilities() -> CveReport {
+    CveReport {
+        total_vulnerabilities: 0, critical: 0, high: 0, medium: 0, low: 0,
+        vulnerable_apps: Vec::new(),
+        scan_date: chrono::Local::now().format("%d/%m/%Y %H:%M").to_string(),
+        recommendation: "Scan CVE disponible uniquement sur Windows".to_string(),
+    }
+}
+
+// ============================================
+// FAILURE PREDICTION (v3.4.0)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct FailurePrediction {
+    pub disk_risk: DiskRisk,
+    pub ram_risk: RamRisk,
+    pub overall_risk_percent: u8,
+    pub predicted_issues: Vec<PredictedIssue>,
+    pub recommendations: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct DiskRisk {
+    pub model: String,
+    pub health_percent: u8,
+    pub risk_level: String,
+    pub estimated_lifespan_days: Option<u32>,
+    pub warning_signs: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct RamRisk {
+    pub total_gb: f32,
+    pub risk_level: String,
+    pub error_count: u32,
+    pub last_test_date: Option<String>,
+    pub warning_signs: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct PredictedIssue {
+    pub component: String,
+    pub issue: String,
+    pub probability_percent: u8,
+    pub timeframe: String,
+    pub impact: String,
+    pub prevention: String,
+}
+
+#[cfg(windows)]
+pub fn predict_failures() -> FailurePrediction {
+    use std::process::Command;
+
+    let mut disk_risk = DiskRisk {
+        model: "Unknown".into(), health_percent: 100,
+        risk_level: "Faible".into(), estimated_lifespan_days: None, warning_signs: Vec::new(),
+    };
+    let mut ram_risk = RamRisk {
+        total_gb: 0.0, risk_level: "Faible".into(),
+        error_count: 0, last_test_date: None, warning_signs: Vec::new(),
+    };
+    let mut predicted_issues = Vec::new();
+    let mut recommendations = Vec::new();
+
+    // Disk SMART check
+    let ps_disk = r#"
+$d = Get-CimInstance Win32_DiskDrive | Select-Object -First 1
+@{ Model=$d.Model; Status=$d.Status } | ConvertTo-Json -Compress
+"#;
+    if let Ok(out) = Command::new("powershell").args(["-NoProfile", "-Command", ps_disk])
+        .creation_flags(CREATE_NO_WINDOW).output() {
+        if let Ok(json) = String::from_utf8(out.stdout) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json.trim()) {
+                disk_risk.model = data.get("Model").and_then(|v| v.as_str()).unwrap_or("Unknown").into();
+                let status = data.get("Status").and_then(|v| v.as_str()).unwrap_or("OK");
+                if status == "Pred Fail" {
+                    disk_risk.health_percent = 25;
+                    disk_risk.risk_level = "Critique".into();
+                    disk_risk.warning_signs.push("SMART predit defaillance".into());
+                    predicted_issues.push(PredictedIssue {
+                        component: "Disque".into(), issue: "Defaillance imminente".into(),
+                        probability_percent: 85, timeframe: "1-4 semaines".into(),
+                        impact: "Perte de donnees".into(), prevention: "Sauvegardez et remplacez".into(),
+                    });
+                }
+            }
+        }
+    }
+
+    // SMART FailurePredictStatus
+    let ps_smart = r#"
+try { $s = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictStatus -EA Stop
+@{Predict=$s.PredictFailure} | ConvertTo-Json -Compress } catch { '{}' }
+"#;
+    if let Ok(out) = Command::new("powershell").args(["-NoProfile", "-Command", ps_smart])
+        .creation_flags(CREATE_NO_WINDOW).output() {
+        if let Ok(json) = String::from_utf8(out.stdout) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json.trim()) {
+                if data.get("Predict").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    disk_risk.health_percent = 15;
+                    disk_risk.risk_level = "Critique".into();
+                }
+            }
+        }
+    }
+
+    // RAM info
+    let sys = sysinfo::System::new_all();
+    ram_risk.total_gb = sys.total_memory() as f32 / 1_073_741_824.0;
+
+    // Memory Diagnostic results
+    let ps_ram = r#"
+try { $e = Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Microsoft-Windows-MemoryDiagnostics-Results'} -MaxEvents 1 -EA Stop
+@{Date=$e.TimeCreated.ToString('dd/MM/yyyy');Msg=$e.Message} | ConvertTo-Json -Compress } catch { '{}' }
+"#;
+    if let Ok(out) = Command::new("powershell").args(["-NoProfile", "-Command", ps_ram])
+        .creation_flags(CREATE_NO_WINDOW).output() {
+        if let Ok(json) = String::from_utf8(out.stdout) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json.trim()) {
+                ram_risk.last_test_date = data.get("Date").and_then(|v| v.as_str()).map(|s| s.into());
+                if let Some(msg) = data.get("Msg").and_then(|v| v.as_str()) {
+                    if msg.to_lowercase().contains("error") {
+                        ram_risk.risk_level = "Eleve".into();
+                        ram_risk.error_count = 1;
+                        ram_risk.warning_signs.push("Erreurs RAM detectees".into());
+                    }
+                }
+            }
+        }
+    }
+
+    let overall_risk = ((100 - disk_risk.health_percent) as f32 * 0.7
+                       + if ram_risk.error_count > 0 { 50.0 } else { 0.0 } * 0.3) as u8;
+
+    if disk_risk.health_percent < 50 {
+        recommendations.push("URGENT: Sauvegardez vos donnees".into());
+    }
+    if ram_risk.error_count > 0 {
+        recommendations.push("Verifiez la RAM avec mdsched.exe".into());
+    }
+    if recommendations.is_empty() {
+        recommendations.push("Aucun signe de defaillance. Continuez les sauvegardes.".into());
+    }
+
+    FailurePrediction { disk_risk, ram_risk, overall_risk_percent: overall_risk, predicted_issues, recommendations }
+}
+
+#[cfg(not(windows))]
+pub fn predict_failures() -> FailurePrediction {
+    FailurePrediction {
+        disk_risk: DiskRisk { model: "N/A".into(), health_percent: 100, risk_level: "N/A".into(), estimated_lifespan_days: None, warning_signs: Vec::new() },
+        ram_risk: RamRisk { total_gb: 0.0, risk_level: "N/A".into(), error_count: 0, last_test_date: None, warning_signs: Vec::new() },
+        overall_risk_percent: 0,
+        predicted_issues: Vec::new(),
+        recommendations: vec!["Disponible uniquement sur Windows".into()],
+    }
+}

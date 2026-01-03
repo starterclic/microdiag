@@ -1,5 +1,5 @@
 // ============================================
-// MICRODIAG SENTINEL AGENT - v3.3.0
+// MICRODIAG SENTINEL AGENT - v3.4.0
 // Production Ready - Local-First Architecture
 // Tauri v2 Migration
 // ============================================
@@ -519,6 +519,16 @@ fn analyze_boot_time() -> diagnostics::BootAnalysis {
     diagnostics::analyze_boot_time()
 }
 
+#[tauri::command]
+fn scan_cve() -> diagnostics::CveReport {
+    diagnostics::scan_cve_vulnerabilities()
+}
+
+#[tauri::command]
+fn predict_failures() -> diagnostics::FailurePrediction {
+    diagnostics::predict_failures()
+}
+
 // ============================================
 // HEARTBEAT
 // ============================================
@@ -839,6 +849,9 @@ fn main() {
             // v3.3.0 - Speedtest & Boot Analysis
             run_speedtest,
             analyze_boot_time,
+            // v3.4.0 - CVE Scanner & Failure Prediction
+            scan_cve,
+            predict_failures,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

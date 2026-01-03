@@ -404,13 +404,120 @@ fn extract_u64(variant: Option<&wmi::Variant>) -> u64 {
 #[cfg(windows)]
 pub fn get_deep_health() -> DeepHealth {
     use wmi::{COMLibrary, WMIConnection};
+    use std::process::Command;
 
-    let default_health = DeepHealth {
-        bios_serial: "Unknown".into(),
-        bios_manufacturer: "Unknown".into(),
-        bios_version: "Unknown".into(),
+    // Try WMI first
+    let wmi_result = (|| {
+        let com_con = COMLibrary::new().ok()?;
+        let wmi_con = WMIConnection::new(com_con).ok()?;
+
+        // BIOS Info
+        let bios_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+            .raw_query("SELECT SerialNumber, Manufacturer, SMBIOSBIOSVersion FROM Win32_BIOS")
+            .unwrap_or_default();
+
+        let (bios_serial, bios_manufacturer, bios_version) = bios_results.first()
+            .map(|bios| (
+                extract_string(bios.get("SerialNumber")),
+                extract_string(bios.get("Manufacturer")),
+                extract_string(bios.get("SMBIOSBIOSVersion")),
+            ))
+            .unwrap_or(("Unknown".into(), "Unknown".into(), "Unknown".into()));
+
+        // Disk Health
+        let disk_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+            .raw_query("SELECT Model, Status FROM Win32_DiskDrive")
+            .unwrap_or_default();
+
+        let (disk_model, disk_smart_status) = disk_results.first()
+            .map(|disk| (
+                extract_string(disk.get("Model")),
+                extract_string(disk.get("Status")),
+            ))
+            .unwrap_or(("Unknown".into(), "Unknown".into()));
+
+        // OS Info
+        let os_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+            .raw_query("SELECT Caption, LastBootUpTime, CSName FROM Win32_OperatingSystem")
+            .unwrap_or_default();
+
+        let (windows_version, last_boot_time, computer_name) = os_results.first()
+            .map(|os| (
+                extract_string(os.get("Caption")),
+                extract_string(os.get("LastBootUpTime")),
+                extract_string(os.get("CSName")),
+            ))
+            .unwrap_or(("Unknown".into(), "Unknown".into(), "Unknown".into()));
+
+        let battery = get_battery_health(&wmi_con);
+        let smart_disks = get_smart_disk_info(&wmi_con);
+
+        Some(DeepHealth {
+            bios_serial,
+            bios_manufacturer,
+            bios_version,
+            disk_smart_status,
+            disk_model,
+            battery,
+            last_boot_time,
+            windows_version,
+            computer_name,
+            smart_disks,
+        })
+    })();
+
+    // If WMI worked, return it
+    if let Some(health) = wmi_result {
+        if health.computer_name != "Unknown" {
+            return health;
+        }
+    }
+
+    // Fallback to PowerShell if WMI failed
+    get_deep_health_powershell()
+}
+
+#[cfg(windows)]
+fn get_deep_health_powershell() -> DeepHealth {
+    use std::process::Command;
+
+    let ps_script = r#"
+$result = @{}
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $bios = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue
+    $disk = Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue | Select-Object -First 1
+    $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+
+    $result = @{
+        computer_name = if($cs) { $cs.Name } else { $env:COMPUTERNAME }
+        windows_version = if($os) { $os.Caption } else { "Windows" }
+        last_boot = if($os) { $os.LastBootUpTime.ToString("dd/MM/yyyy HH:mm") } else { "" }
+        bios_serial = if($bios) { $bios.SerialNumber } else { "" }
+        bios_manufacturer = if($bios) { $bios.Manufacturer } else { "" }
+        bios_version = if($bios) { $bios.SMBIOSBIOSVersion } else { "" }
+        disk_model = if($disk) { $disk.Model } else { "" }
+        disk_status = if($disk) { $disk.Status } else { "Unknown" }
+        battery_present = if($bat) { $true } else { $false }
+        battery_charge = if($bat) { $bat.EstimatedChargeRemaining } else { 0 }
+        battery_status = if($bat) { $bat.BatteryStatus } else { 0 }
+    }
+} catch {}
+$result | ConvertTo-Json -Compress
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    let mut health = DeepHealth {
+        bios_serial: "N/A".into(),
+        bios_manufacturer: "N/A".into(),
+        bios_version: "N/A".into(),
         disk_smart_status: "Unknown".into(),
-        disk_model: "Unknown".into(),
+        disk_model: "N/A".into(),
         battery: BatteryHealth {
             is_present: false,
             charge_percent: 0,
@@ -419,84 +526,64 @@ pub fn get_deep_health() -> DeepHealth {
             design_capacity: 0,
             full_charge_capacity: 0,
         },
-        last_boot_time: "Unknown".into(),
-        windows_version: "Unknown".into(),
-        computer_name: "Unknown".into(),
+        last_boot_time: "N/A".into(),
+        windows_version: "Windows".into(),
+        computer_name: std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into()),
         smart_disks: Vec::new(),
     };
 
-    let com_con = match COMLibrary::new() {
-        Ok(c) => c,
-        Err(_) => return default_health,
-    };
-
-    let wmi_con = match WMIConnection::new(com_con) {
-        Ok(w) => w,
-        Err(_) => return default_health,
-    };
-
-    // BIOS Info
-    let bios_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
-        .raw_query("SELECT SerialNumber, Manufacturer, SMBIOSBIOSVersion FROM Win32_BIOS")
-        .unwrap_or_default();
-
-    let (bios_serial, bios_manufacturer, bios_version) = if let Some(bios) = bios_results.first() {
-        (
-            extract_string(bios.get("SerialNumber")),
-            extract_string(bios.get("Manufacturer")),
-            extract_string(bios.get("SMBIOSBIOSVersion")),
-        )
-    } else {
-        ("Unknown".into(), "Unknown".into(), "Unknown".into())
-    };
-
-    // Disk Health (SMART)
-    let disk_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
-        .raw_query("SELECT Model, Status FROM Win32_DiskDrive")
-        .unwrap_or_default();
-
-    let (disk_model, disk_smart_status) = if let Some(disk) = disk_results.first() {
-        (
-            extract_string(disk.get("Model")),
-            extract_string(disk.get("Status")),
-        )
-    } else {
-        ("Unknown".into(), "Unknown".into())
-    };
-
-    // Battery
-    let battery = get_battery_health(&wmi_con);
-
-    // OS Info
-    let os_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
-        .raw_query("SELECT Caption, LastBootUpTime, CSName FROM Win32_OperatingSystem")
-        .unwrap_or_default();
-
-    let (windows_version, last_boot_time, computer_name) = if let Some(os) = os_results.first() {
-        (
-            extract_string(os.get("Caption")),
-            extract_string(os.get("LastBootUpTime")),
-            extract_string(os.get("CSName")),
-        )
-    } else {
-        ("Unknown".into(), "Unknown".into(), "Unknown".into())
-    };
-
-    // SMART Disk Info (CrystalDisk style)
-    let smart_disks = get_smart_disk_info(&wmi_con);
-
-    DeepHealth {
-        bios_serial,
-        bios_manufacturer,
-        bios_version,
-        disk_smart_status,
-        disk_model,
-        battery,
-        last_boot_time,
-        windows_version,
-        computer_name,
-        smart_disks,
+    if let Ok(out) = output {
+        if let Ok(json_str) = String::from_utf8(out.stdout) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                if let Some(v) = data.get("computer_name").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.computer_name = v.to_string(); }
+                }
+                if let Some(v) = data.get("windows_version").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.windows_version = v.to_string(); }
+                }
+                if let Some(v) = data.get("last_boot").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.last_boot_time = v.to_string(); }
+                }
+                if let Some(v) = data.get("bios_serial").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.bios_serial = v.to_string(); }
+                }
+                if let Some(v) = data.get("bios_manufacturer").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.bios_manufacturer = v.to_string(); }
+                }
+                if let Some(v) = data.get("bios_version").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.bios_version = v.to_string(); }
+                }
+                if let Some(v) = data.get("disk_model").and_then(|v| v.as_str()) {
+                    if !v.is_empty() { health.disk_model = v.to_string(); }
+                }
+                if let Some(v) = data.get("disk_status").and_then(|v| v.as_str()) {
+                    health.disk_smart_status = v.to_string();
+                }
+                if data.get("battery_present").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let charge = data.get("battery_charge").and_then(|v| v.as_u64()).unwrap_or(0) as u8;
+                    let status_code = data.get("battery_status").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                    let status = match status_code {
+                        1 => "Decharge",
+                        2 => "Secteur",
+                        3 => "Charge complete",
+                        4 => "Faible",
+                        5 => "Critique",
+                        _ => "Inconnu",
+                    };
+                    health.battery = BatteryHealth {
+                        is_present: true,
+                        charge_percent: charge.min(100),
+                        health_percent: 100,
+                        status: status.into(),
+                        design_capacity: 0,
+                        full_charge_capacity: 0,
+                    };
+                }
+            }
+        }
     }
+
+    health
 }
 
 #[cfg(windows)]
