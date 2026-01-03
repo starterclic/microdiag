@@ -23,9 +23,32 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
 
-      # Try to download from workflow artifacts first (Build Windows)
+      # Download artifacts from the specific workflow run that triggered this deploy
       - name: Download artifacts from Build Windows
         id: download-artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-windows.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: MicrodiagSentinel-msi
+          path: release-assets
+          if_no_artifact_found: warn
+        continue-on-error: true
+        if: github.event_name == 'workflow_run'
+
+      - name: Download EXE artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-windows.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: MicrodiagSentinel-exe
+          path: release-assets
+          if_no_artifact_found: warn
+        continue-on-error: true
+        if: github.event_name == 'workflow_run'
+
+      # For manual dispatch, get latest successful build
+      - name: Download artifacts (manual)
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-windows.yml
@@ -34,8 +57,9 @@ jobs:
           path: release-assets
           if_no_artifact_found: warn
         continue-on-error: true
+        if: github.event_name == 'workflow_dispatch'
 
-      - name: Download EXE artifacts
+      - name: Download EXE artifacts (manual)
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-windows.yml
@@ -44,6 +68,7 @@ jobs:
           path: release-assets
           if_no_artifact_found: warn
         continue-on-error: true
+        if: github.event_name == 'workflow_dispatch'
 
       # Fallback: download from GitHub Release if artifacts not found
       - name: Download from Release (fallback)
