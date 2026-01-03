@@ -1,6 +1,6 @@
 [package]
 name = "microdiag-sentinel"
-version = "3.1.0"
+version = "3.3.0"
 description = "Microdiag Sentinel Agent - Surveillance système intelligente"
 authors = ["Microdiag Team"]
 license = "MIT"
@@ -29,6 +29,8 @@ tempfile = "3.10"
 dirs = "5.0"
 # Local-First SQLite
 rusqlite = { version = "0.31", features = ["bundled"] }
+# Benchmark & Analysis
+rand = "0.8"
 
 # God Mode - Native Performance (Windows)
 [target.'cfg(windows)'.dependencies]

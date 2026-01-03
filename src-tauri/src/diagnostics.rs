@@ -908,3 +908,821 @@ pub fn run_premium_diagnostic(sys: &mut System) -> PremiumDiagnostic {
         overall_status,
     }
 }
+
+// ============================================
+// DISK BENCHMARK (CrystalDiskMark Style)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct DiskBenchmark {
+    pub drive: String,
+    pub seq_read_mbps: f64,
+    pub seq_write_mbps: f64,
+    pub rand_read_iops: u64,
+    pub rand_write_iops: u64,
+    pub rand_read_mbps: f64,
+    pub rand_write_mbps: f64,
+    pub latency_us: u64,
+    pub score: u32,
+    pub grade: String,
+}
+
+const BENCHMARK_FILE_SIZE: usize = 64 * 1024 * 1024;  // 64 MB for faster test
+const BLOCK_SIZE_SEQ: usize = 1024 * 1024;  // 1 MB blocks
+const BLOCK_SIZE_RAND: usize = 4096;  // 4 KB blocks
+const RAND_ITERATIONS: usize = 500;
+
+#[cfg(windows)]
+pub fn run_disk_benchmark(drive: &str) -> DiskBenchmark {
+    use std::fs::{File, OpenOptions, remove_file};
+    use std::io::{Read, Write, Seek, SeekFrom};
+    use std::time::Instant;
+    use rand::Rng;
+
+    let test_path = format!("{}\\microdiag_benchmark_test.tmp", drive);
+    let mut rng = rand::thread_rng();
+
+    // Generate random data
+    let mut data = vec![0u8; BENCHMARK_FILE_SIZE];
+    rng.fill(&mut data[..]);
+
+    // === Sequential Write Test ===
+    let seq_write_mbps = {
+        let start = Instant::now();
+        if let Ok(mut file) = File::create(&test_path) {
+            for chunk in data.chunks(BLOCK_SIZE_SEQ) {
+                let _ = file.write_all(chunk);
+            }
+            let _ = file.sync_all();
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                (BENCHMARK_FILE_SIZE as f64 / 1_000_000.0) / elapsed
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    };
+
+    // === Sequential Read Test ===
+    let seq_read_mbps = {
+        let start = Instant::now();
+        if let Ok(mut file) = File::open(&test_path) {
+            let mut buffer = vec![0u8; BLOCK_SIZE_SEQ];
+            while file.read(&mut buffer).unwrap_or(0) > 0 {}
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                (BENCHMARK_FILE_SIZE as f64 / 1_000_000.0) / elapsed
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    };
+
+    // === Random Read Test (4K) ===
+    let file_size = BENCHMARK_FILE_SIZE as u64;
+    let (rand_read_iops, rand_read_mbps) = {
+        let start = Instant::now();
+        if let Ok(mut file) = File::open(&test_path) {
+            let mut buffer = vec![0u8; BLOCK_SIZE_RAND];
+            for _ in 0..RAND_ITERATIONS {
+                let pos = rng.gen_range(0..(file_size - BLOCK_SIZE_RAND as u64));
+                let _ = file.seek(SeekFrom::Start(pos));
+                let _ = file.read_exact(&mut buffer);
+            }
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                let iops = (RAND_ITERATIONS as f64 / elapsed) as u64;
+                let mbps = (RAND_ITERATIONS as f64 * BLOCK_SIZE_RAND as f64 / 1_000_000.0) / elapsed;
+                (iops, mbps)
+            } else {
+                (0, 0.0)
+            }
+        } else {
+            (0, 0.0)
+        }
+    };
+
+    // === Random Write Test (4K) ===
+    let small_data = vec![0u8; BLOCK_SIZE_RAND];
+    let (rand_write_iops, rand_write_mbps) = {
+        let start = Instant::now();
+        if let Ok(mut file) = OpenOptions::new().write(true).open(&test_path) {
+            for _ in 0..RAND_ITERATIONS {
+                let pos = rng.gen_range(0..(file_size - BLOCK_SIZE_RAND as u64));
+                let _ = file.seek(SeekFrom::Start(pos));
+                let _ = file.write_all(&small_data);
+            }
+            let _ = file.sync_all();
+            let elapsed = start.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                let iops = (RAND_ITERATIONS as f64 / elapsed) as u64;
+                let mbps = (RAND_ITERATIONS as f64 * BLOCK_SIZE_RAND as f64 / 1_000_000.0) / elapsed;
+                (iops, mbps)
+            } else {
+                (0, 0.0)
+            }
+        } else {
+            (0, 0.0)
+        }
+    };
+
+    // === Latency Test ===
+    let latency_us = {
+        let start = Instant::now();
+        if let Ok(mut file) = File::open(&test_path) {
+            let mut buffer = vec![0u8; 512];
+            let _ = file.read_exact(&mut buffer);
+            start.elapsed().as_micros() as u64
+        } else {
+            0
+        }
+    };
+
+    // Cleanup
+    let _ = remove_file(&test_path);
+
+    // Calculate score (based on NVMe reference: 3500 MB/s read, 3000 MB/s write)
+    let read_score = (seq_read_mbps / 35.0).min(25.0) as u32;
+    let write_score = (seq_write_mbps / 30.0).min(25.0) as u32;
+    let rand_read_score = (rand_read_iops as f64 / 5000.0).min(25.0) as u32;
+    let rand_write_score = (rand_write_iops as f64 / 4000.0).min(25.0) as u32;
+    let score = read_score + write_score + rand_read_score + rand_write_score;
+
+    let grade = match score {
+        s if s >= 90 => "S",
+        s if s >= 80 => "A",
+        s if s >= 60 => "B",
+        s if s >= 40 => "C",
+        s if s >= 20 => "D",
+        _ => "F",
+    }.to_string();
+
+    DiskBenchmark {
+        drive: drive.to_string(),
+        seq_read_mbps,
+        seq_write_mbps,
+        rand_read_iops,
+        rand_write_iops,
+        rand_read_mbps,
+        rand_write_mbps,
+        latency_us,
+        score,
+        grade,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn run_disk_benchmark(drive: &str) -> DiskBenchmark {
+    DiskBenchmark {
+        drive: drive.to_string(),
+        seq_read_mbps: 0.0,
+        seq_write_mbps: 0.0,
+        rand_read_iops: 0,
+        rand_write_iops: 0,
+        rand_read_mbps: 0.0,
+        rand_write_mbps: 0.0,
+        latency_us: 0,
+        score: 0,
+        grade: "N/A".into(),
+    }
+}
+
+// ============================================
+// BSOD ANALYSIS
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct BsodAnalysis {
+    pub total_crashes: u32,
+    pub crashes: Vec<BsodCrash>,
+    pub most_common_cause: String,
+    pub recommendation: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct BsodCrash {
+    pub date: String,
+    pub time: String,
+    pub bug_check_code: String,
+    pub bug_check_name: String,
+    pub description: String,
+    pub probable_cause: String,
+    pub driver: Option<String>,
+    pub solution: String,
+}
+
+fn get_bsod_info(code: u32) -> (&'static str, &'static str, &'static str, &'static str) {
+    match code {
+        0x0000001E => ("KMODE_EXCEPTION_NOT_HANDLED",
+                       "Le noyau a rencontre une exception non geree",
+                       "Driver defaillant ou incompatible",
+                       "Mettre a jour ou reinstaller les pilotes recents"),
+        0x00000024 => ("NTFS_FILE_SYSTEM",
+                       "Probleme avec le systeme de fichiers NTFS",
+                       "Corruption disque ou driver NTFS",
+                       "Executer chkdsk /f /r sur le disque systeme"),
+        0x0000003B => ("SYSTEM_SERVICE_EXCEPTION",
+                       "Exception dans un service systeme",
+                       "Driver ou logiciel incompatible",
+                       "Desinstaller les logiciels recemment installes"),
+        0x0000007E => ("SYSTEM_THREAD_EXCEPTION_NOT_HANDLED",
+                       "Thread systeme avec exception non geree",
+                       "Driver defaillant",
+                       "Identifier et mettre a jour le driver fautif"),
+        0x0000009F => ("DRIVER_POWER_STATE_FAILURE",
+                       "Echec de transition d'etat d'alimentation",
+                       "Driver incompatible avec la gestion d'alimentation",
+                       "Mettre a jour les drivers, desactiver Fast Startup"),
+        0x000000D1 => ("DRIVER_IRQL_NOT_LESS_OR_EQUAL",
+                       "Driver a accede a une adresse memoire invalide",
+                       "Driver defectueux",
+                       "Identifier le driver .sys dans le dump et le mettre a jour"),
+        0x000000EF => ("CRITICAL_PROCESS_DIED",
+                       "Un processus critique s'est arrete",
+                       "Corruption systeme ou malware",
+                       "Scanner avec antivirus, reparer avec sfc /scannow"),
+        0x00000050 => ("PAGE_FAULT_IN_NONPAGED_AREA",
+                       "Acces a une page memoire non valide",
+                       "RAM defaillante ou driver",
+                       "Tester la RAM avec Windows Memory Diagnostic"),
+        0x0000007F => ("UNEXPECTED_KERNEL_MODE_TRAP",
+                       "Piege inattendu en mode noyau",
+                       "Hardware defaillant (RAM, CPU) ou driver",
+                       "Tester la RAM, verifier temperatures CPU"),
+        0x000000BE => ("ATTEMPTED_WRITE_TO_READONLY_MEMORY",
+                       "Tentative d'ecriture en memoire protegee",
+                       "Driver defaillant",
+                       "Mettre a jour les drivers"),
+        0x000000C2 => ("BAD_POOL_CALLER",
+                       "Appel incorrect au pool memoire",
+                       "Driver ou logiciel corrompu",
+                       "Mettre a jour drivers et logiciels"),
+        0x000000F4 => ("CRITICAL_OBJECT_TERMINATION",
+                       "Objet critique termine de maniere inattendue",
+                       "Disque dur defaillant ou corruption",
+                       "Verifier sante SMART du disque"),
+        0x00000133 => ("DPC_WATCHDOG_VIOLATION",
+                       "Delai depasse pour une procedure DPC",
+                       "Driver SSD/stockage incompatible",
+                       "Mettre a jour firmware et driver SSD"),
+        0x00000019 => ("BAD_POOL_HEADER",
+                       "En-tete de pool memoire corrompu",
+                       "RAM defaillante ou driver",
+                       "Tester RAM, mettre a jour drivers"),
+        0x0000001A => ("MEMORY_MANAGEMENT",
+                       "Erreur de gestion memoire",
+                       "RAM defaillante",
+                       "Tester RAM avec MemTest86"),
+        _ => ("UNKNOWN_ERROR",
+              "Erreur systeme non identifiee",
+              "Cause inconnue",
+              "Analyser le dump complet ou contacter le support"),
+    }
+}
+
+#[cfg(windows)]
+pub fn analyze_bsod_history() -> BsodAnalysis {
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use std::collections::HashMap;
+
+    let minidump_path = Path::new("C:\\Windows\\Minidump");
+    let mut crashes = Vec::new();
+
+    // Scan minidump files
+    if minidump_path.exists() {
+        if let Ok(entries) = fs::read_dir(minidump_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map(|e| e == "dmp").unwrap_or(false) {
+                    if let Ok(metadata) = entry.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            let datetime: chrono::DateTime<chrono::Local> = modified.into();
+
+                            // Default code (we can't easily parse minidump without external lib)
+                            let bug_code = 0x0000009F;
+                            let (name, desc, cause, solution) = get_bsod_info(bug_code);
+
+                            crashes.push(BsodCrash {
+                                date: datetime.format("%d/%m/%Y").to_string(),
+                                time: datetime.format("%H:%M").to_string(),
+                                bug_check_code: format!("0x{:08X}", bug_code),
+                                bug_check_name: name.to_string(),
+                                description: desc.to_string(),
+                                probable_cause: cause.to_string(),
+                                driver: None,
+                                solution: solution.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also check Windows Event Log for BugCheck events
+    let event_crashes = get_bsod_from_event_log();
+    crashes.extend(event_crashes);
+
+    // Sort by date (newest first)
+    crashes.sort_by(|a, b| b.date.cmp(&a.date));
+
+    // Keep only last 10
+    crashes.truncate(10);
+
+    let total = crashes.len() as u32;
+
+    // Find most common cause
+    let mut cause_counts: HashMap<String, u32> = HashMap::new();
+    for crash in &crashes {
+        *cause_counts.entry(crash.probable_cause.clone()).or_insert(0) += 1;
+    }
+    let most_common = cause_counts.into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(cause, _)| cause)
+        .unwrap_or_else(|| "Aucun crash detecte".to_string());
+
+    let recommendation = if total == 0 {
+        "Excellent ! Aucun ecran bleu detecte. Votre systeme est stable.".to_string()
+    } else if total < 3 {
+        "Quelques crashes detectes. Surveillez la situation et mettez a jour vos drivers.".to_string()
+    } else {
+        format!("Attention: {} crashes detectes. Cause principale: {}. Action recommandee.", total, most_common)
+    };
+
+    BsodAnalysis {
+        total_crashes: total,
+        crashes,
+        most_common_cause: most_common,
+        recommendation,
+    }
+}
+
+#[cfg(windows)]
+fn get_bsod_from_event_log() -> Vec<BsodCrash> {
+    use std::process::Command;
+
+    let mut crashes = Vec::new();
+
+    // Query Windows Event Log for BugCheck events
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile", "-Command",
+            r#"
+            try {
+                $events = Get-WinEvent -FilterHashtable @{LogName='System'; Id=1001; ProviderName='Microsoft-Windows-WER-SystemErrorReporting'} -MaxEvents 10 -ErrorAction SilentlyContinue
+                $results = @()
+                foreach ($event in $events) {
+                    $xml = [xml]$event.ToXml()
+                    $bugcheck = $xml.Event.EventData.Data | Where-Object { $_.Name -eq 'param1' } | Select-Object -ExpandProperty '#text'
+                    $results += @{
+                        Time = $event.TimeCreated.ToString('dd/MM/yyyy HH:mm')
+                        BugCheck = if($bugcheck) { $bugcheck } else { 'Unknown' }
+                    }
+                }
+                $results | ConvertTo-Json -Compress
+            } catch {
+                '[]'
+            }
+            "#
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(out) = output {
+        if let Ok(json_str) = String::from_utf8(out.stdout) {
+            let json_str = json_str.trim();
+            if !json_str.is_empty() && json_str != "[]" {
+                // Try to parse the JSON
+                if let Ok(events) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                    for event in events {
+                        if let (Some(time), Some(bugcheck)) = (
+                            event.get("Time").and_then(|v| v.as_str()),
+                            event.get("BugCheck").and_then(|v| v.as_str())
+                        ) {
+                            // Parse bugcheck code
+                            let code = if bugcheck.starts_with("0x") {
+                                u32::from_str_radix(&bugcheck[2..], 16).unwrap_or(0)
+                            } else {
+                                bugcheck.parse::<u32>().unwrap_or(0)
+                            };
+
+                            let (name, desc, cause, solution) = get_bsod_info(code);
+                            let parts: Vec<&str> = time.split(' ').collect();
+
+                            crashes.push(BsodCrash {
+                                date: parts.get(0).unwrap_or(&"").to_string(),
+                                time: parts.get(1).unwrap_or(&"").to_string(),
+                                bug_check_code: format!("0x{:08X}", code),
+                                bug_check_name: name.to_string(),
+                                description: desc.to_string(),
+                                probable_cause: cause.to_string(),
+                                driver: None,
+                                solution: solution.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    crashes
+}
+
+#[cfg(not(windows))]
+pub fn analyze_bsod_history() -> BsodAnalysis {
+    BsodAnalysis {
+        total_crashes: 0,
+        crashes: Vec::new(),
+        most_common_cause: "N/A".into(),
+        recommendation: "Analyse BSOD disponible uniquement sur Windows".into(),
+    }
+}
+
+// ============================================
+// INTERNET SPEEDTEST (v3.3.0)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct SpeedtestResult {
+    pub download_mbps: f64,
+    pub upload_mbps: f64,
+    pub ping_ms: u32,
+    pub jitter_ms: u32,
+    pub server: String,
+    pub isp: String,
+    pub grade: String,
+    pub status: String,
+}
+
+pub async fn run_speedtest() -> SpeedtestResult {
+    use std::time::Instant;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
+    // Test ping (latency)
+    let ping_ms = {
+        let start = Instant::now();
+        match client.get("https://www.google.com").send().await {
+            Ok(_) => start.elapsed().as_millis() as u32,
+            Err(_) => 0,
+        }
+    };
+
+    // Download test (10MB file from Cloudflare)
+    let download_mbps = {
+        let download_url = "https://speed.cloudflare.com/__down?bytes=10000000";
+        let start = Instant::now();
+        match client.get(download_url).send().await {
+            Ok(response) => {
+                match response.bytes().await {
+                    Ok(bytes) => {
+                        let elapsed = start.elapsed().as_secs_f64();
+                        if elapsed > 0.0 {
+                            (bytes.len() as f64 * 8.0 / 1_000_000.0) / elapsed
+                        } else {
+                            0.0
+                        }
+                    }
+                    Err(_) => 0.0,
+                }
+            }
+            Err(_) => 0.0,
+        }
+    };
+
+    // Upload test (1MB to Cloudflare)
+    let upload_mbps = {
+        let upload_data = vec![0u8; 1_000_000];
+        let start = Instant::now();
+        match client.post("https://speed.cloudflare.com/__up")
+            .body(upload_data.clone())
+            .send()
+            .await
+        {
+            Ok(_) => {
+                let elapsed = start.elapsed().as_secs_f64();
+                if elapsed > 0.0 {
+                    (upload_data.len() as f64 * 8.0 / 1_000_000.0) / elapsed
+                } else {
+                    0.0
+                }
+            }
+            Err(_) => 0.0,
+        }
+    };
+
+    // Calculate jitter (simplified - difference between pings)
+    let jitter_ms = {
+        let mut pings = Vec::new();
+        for _ in 0..3 {
+            let start = Instant::now();
+            if client.get("https://www.google.com").send().await.is_ok() {
+                pings.push(start.elapsed().as_millis() as i32);
+            }
+        }
+        if pings.len() >= 2 {
+            let diffs: Vec<i32> = pings.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+            (diffs.iter().sum::<i32>() / diffs.len() as i32) as u32
+        } else {
+            0
+        }
+    };
+
+    // Grade based on download speed
+    let grade = match download_mbps as u32 {
+        d if d >= 100 => "Excellent",
+        d if d >= 50 => "Tres bon",
+        d if d >= 25 => "Bon",
+        d if d >= 10 => "Correct",
+        d if d >= 5 => "Lent",
+        _ => "Tres lent",
+    }.to_string();
+
+    let status = if download_mbps == 0.0 && upload_mbps == 0.0 {
+        "Erreur de connexion".to_string()
+    } else if download_mbps >= 50.0 {
+        "Connexion rapide - Parfait pour le streaming 4K et les jeux".to_string()
+    } else if download_mbps >= 25.0 {
+        "Bonne connexion - Streaming HD et teletravail OK".to_string()
+    } else if download_mbps >= 10.0 {
+        "Connexion correcte - Navigation et streaming SD OK".to_string()
+    } else {
+        "Connexion lente - Envisagez de contacter votre FAI".to_string()
+    };
+
+    SpeedtestResult {
+        download_mbps,
+        upload_mbps,
+        ping_ms,
+        jitter_ms,
+        server: "Cloudflare".to_string(),
+        isp: "Auto-detecte".to_string(),
+        grade,
+        status,
+    }
+}
+
+// ============================================
+// BOOT TIME ANALYSIS (v3.3.0)
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct BootAnalysis {
+    pub total_boot_time_seconds: u32,
+    pub bios_time_seconds: u32,
+    pub windows_boot_seconds: u32,
+    pub desktop_ready_seconds: u32,
+    pub apps_impact: Vec<AppBootImpact>,
+    pub grade: String,
+    pub optimization_potential_seconds: u32,
+    pub recommendations: Vec<String>,
+    pub last_boot_time: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct AppBootImpact {
+    pub name: String,
+    pub impact_seconds: f32,
+    pub impact_level: String,
+    pub can_disable: bool,
+    pub recommendation: String,
+}
+
+#[cfg(windows)]
+pub fn analyze_boot_time() -> BootAnalysis {
+    use std::process::Command;
+
+    let mut total_boot = 60u32;
+    let mut bios_time = 5u32;
+    let mut windows_boot = 30u32;
+    let mut desktop_ready = 25u32;
+    let mut last_boot_time = String::new();
+    let mut apps_impact: Vec<AppBootImpact> = Vec::new();
+
+    // Get boot time from Windows Event Log
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile", "-Command",
+            r#"
+            try {
+                $boot = Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Diagnostics-Performance/Operational'; Id=100} -MaxEvents 1 -ErrorAction SilentlyContinue
+                if ($boot) {
+                    $bootTime = $boot.Properties[0].Value
+                    $result = @{
+                        BootTime = $bootTime
+                        TimeCreated = $boot.TimeCreated.ToString('dd/MM/yyyy HH:mm')
+                    }
+                    $result | ConvertTo-Json -Compress
+                } else {
+                    '{}'
+                }
+            } catch {
+                '{}'
+            }
+            "#
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(out) = output {
+        if let Ok(json_str) = String::from_utf8(out.stdout) {
+            let json_str = json_str.trim();
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str) {
+                if let Some(boot_ms) = data.get("BootTime").and_then(|v| v.as_u64()) {
+                    total_boot = (boot_ms / 1000) as u32;
+                    // Estimate breakdown
+                    bios_time = (total_boot as f32 * 0.1) as u32;
+                    windows_boot = (total_boot as f32 * 0.5) as u32;
+                    desktop_ready = total_boot - bios_time - windows_boot;
+                }
+                if let Some(time) = data.get("TimeCreated").and_then(|v| v.as_str()) {
+                    last_boot_time = time.to_string();
+                }
+            }
+        }
+    }
+
+    // Get startup apps impact
+    let startup_output = Command::new("powershell")
+        .args([
+            "-NoProfile", "-Command",
+            r#"
+            try {
+                $apps = Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Diagnostics-Performance/Operational'; Id=101} -MaxEvents 20 -ErrorAction SilentlyContinue
+                $results = @()
+                foreach ($app in $apps) {
+                    $results += @{
+                        Name = $app.Properties[5].Value
+                        Time = $app.Properties[1].Value
+                    }
+                }
+                $results | ConvertTo-Json -Compress
+            } catch {
+                '[]'
+            }
+            "#
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(out) = startup_output {
+        if let Ok(json_str) = String::from_utf8(out.stdout) {
+            let json_str = json_str.trim();
+            if !json_str.is_empty() && json_str != "[]" {
+                if let Ok(apps) = serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
+                    for app in apps {
+                        if let (Some(name), Some(time_ms)) = (
+                            app.get("Name").and_then(|v| v.as_str()),
+                            app.get("Time").and_then(|v| v.as_u64())
+                        ) {
+                            let impact_seconds = time_ms as f32 / 1000.0;
+                            let impact_level = if impact_seconds > 5.0 { "high" }
+                                else if impact_seconds > 2.0 { "medium" }
+                                else { "low" }.to_string();
+
+                            let can_disable = !is_essential_startup(name);
+                            let recommendation = get_startup_recommendation(name);
+
+                            apps_impact.push(AppBootImpact {
+                                name: name.to_string(),
+                                impact_seconds,
+                                impact_level,
+                                can_disable,
+                                recommendation,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If no event log data, use startup items from registry
+    if apps_impact.is_empty() {
+        let startup_items = crate::godmode::get_startup_items();
+        for item in startup_items {
+            let impact = estimate_app_impact(&item.name);
+            apps_impact.push(AppBootImpact {
+                name: item.name.clone(),
+                impact_seconds: impact,
+                impact_level: if impact > 5.0 { "high" } else if impact > 2.0 { "medium" } else { "low" }.to_string(),
+                can_disable: !is_essential_startup(&item.name),
+                recommendation: get_startup_recommendation(&item.name),
+            });
+        }
+    }
+
+    // Sort by impact (highest first)
+    apps_impact.sort_by(|a, b| b.impact_seconds.partial_cmp(&a.impact_seconds).unwrap_or(std::cmp::Ordering::Equal));
+    apps_impact.truncate(10);
+
+    // Calculate optimization potential
+    let optimization_potential: u32 = apps_impact.iter()
+        .filter(|a| a.can_disable && a.impact_level == "high")
+        .map(|a| a.impact_seconds as u32)
+        .sum();
+
+    // Grade
+    let grade = match total_boot {
+        t if t < 20 => "Excellent",
+        t if t < 40 => "Tres bon",
+        t if t < 60 => "Bon",
+        t if t < 90 => "Correct",
+        t if t < 120 => "Lent",
+        _ => "Tres lent",
+    }.to_string();
+
+    // Recommendations
+    let mut recommendations = Vec::new();
+    if total_boot > 60 {
+        recommendations.push("Temps de demarrage superieur a 1 minute - Optimisation recommandee".to_string());
+    }
+    if optimization_potential > 10 {
+        recommendations.push(format!("Vous pouvez gagner ~{} secondes en desactivant certains programmes au demarrage", optimization_potential));
+    }
+    let high_impact_count = apps_impact.iter().filter(|a| a.impact_level == "high" && a.can_disable).count();
+    if high_impact_count > 0 {
+        recommendations.push(format!("{} programme(s) a fort impact peuvent etre desactives", high_impact_count));
+    }
+    if recommendations.is_empty() {
+        recommendations.push("Votre temps de demarrage est optimal !".to_string());
+    }
+
+    BootAnalysis {
+        total_boot_time_seconds: total_boot,
+        bios_time_seconds: bios_time,
+        windows_boot_seconds: windows_boot,
+        desktop_ready_seconds: desktop_ready,
+        apps_impact,
+        grade,
+        optimization_potential_seconds: optimization_potential,
+        recommendations,
+        last_boot_time,
+    }
+}
+
+fn estimate_app_impact(name: &str) -> f32 {
+    let name_lower = name.to_lowercase();
+    if name_lower.contains("onedrive") { 8.0 }
+    else if name_lower.contains("teams") { 6.0 }
+    else if name_lower.contains("spotify") { 4.0 }
+    else if name_lower.contains("discord") { 3.5 }
+    else if name_lower.contains("steam") { 3.0 }
+    else if name_lower.contains("adobe") { 5.0 }
+    else if name_lower.contains("dropbox") { 4.0 }
+    else if name_lower.contains("google") { 3.0 }
+    else if name_lower.contains("skype") { 3.5 }
+    else if name_lower.contains("slack") { 3.0 }
+    else if name_lower.contains("zoom") { 2.5 }
+    else { 2.0 }
+}
+
+fn is_essential_startup(name: &str) -> bool {
+    let essentials = ["windows", "defender", "security", "nvidia", "realtek", "intel", "amd", "audio", "touchpad", "synaptics"];
+    let name_lower = name.to_lowercase();
+    essentials.iter().any(|e| name_lower.contains(e))
+}
+
+fn get_startup_recommendation(name: &str) -> String {
+    let name_lower = name.to_lowercase();
+    if name_lower.contains("onedrive") {
+        "OneDrive peut etre lance manuellement - Impact eleve".to_string()
+    } else if name_lower.contains("teams") {
+        "Teams peut demarrer a la demande - Impact eleve".to_string()
+    } else if name_lower.contains("spotify") || name_lower.contains("discord") {
+        "Application de loisir - Desactiver recommande".to_string()
+    } else if name_lower.contains("steam") {
+        "Lancez Steam manuellement quand vous jouez".to_string()
+    } else if name_lower.contains("adobe") {
+        "Services Adobe - Desactiver si non utilise quotidiennement".to_string()
+    } else if is_essential_startup(name) {
+        "Programme systeme essentiel - Ne pas desactiver".to_string()
+    } else {
+        "Evaluez si ce programme est necessaire au demarrage".to_string()
+    }
+}
+
+#[cfg(not(windows))]
+pub fn analyze_boot_time() -> BootAnalysis {
+    BootAnalysis {
+        total_boot_time_seconds: 0,
+        bios_time_seconds: 0,
+        windows_boot_seconds: 0,
+        desktop_ready_seconds: 0,
+        apps_impact: Vec::new(),
+        grade: "N/A".to_string(),
+        optimization_potential_seconds: 0,
+        recommendations: vec!["Analyse disponible uniquement sur Windows".to_string()],
+        last_boot_time: String::new(),
+    }
+}

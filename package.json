@@ -1,6 +1,6 @@
 {
   "name": "microdiag-sentinel-agent",
-  "version": "1.0.0",
+  "version": "3.3.0",
   "description": "Microdiag Sentinel - Agent de surveillance système",
   "private": true,
   "scripts": {

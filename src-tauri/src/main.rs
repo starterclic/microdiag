@@ -1,5 +1,5 @@
 // ============================================
-// MICRODIAG SENTINEL AGENT - v2.5.0
+// MICRODIAG SENTINEL AGENT - v3.3.0
 // Production Ready - Local-First Architecture
 // Tauri v2 Migration
 // ============================================
@@ -485,6 +485,40 @@ fn get_storage_analysis() -> diagnostics::StorageAnalysis {
     diagnostics::analyze_storage()
 }
 
+#[tauri::command]
+async fn run_disk_benchmark(drive: String) -> diagnostics::DiskBenchmark {
+    // Run benchmark in a blocking task to avoid blocking the async runtime
+    tokio::task::spawn_blocking(move || {
+        diagnostics::run_disk_benchmark(&drive)
+    }).await.unwrap_or_else(|_| diagnostics::DiskBenchmark {
+        drive: "Error".into(),
+        seq_read_mbps: 0.0,
+        seq_write_mbps: 0.0,
+        rand_read_iops: 0,
+        rand_write_iops: 0,
+        rand_read_mbps: 0.0,
+        rand_write_mbps: 0.0,
+        latency_us: 0,
+        score: 0,
+        grade: "Error".into(),
+    })
+}
+
+#[tauri::command]
+fn analyze_bsod() -> diagnostics::BsodAnalysis {
+    diagnostics::analyze_bsod_history()
+}
+
+#[tauri::command]
+async fn run_speedtest() -> diagnostics::SpeedtestResult {
+    diagnostics::run_speedtest().await
+}
+
+#[tauri::command]
+fn analyze_boot_time() -> diagnostics::BootAnalysis {
+    diagnostics::analyze_boot_time()
+}
+
 // ============================================
 // HEARTBEAT
 // ============================================
@@ -799,6 +833,12 @@ fn main() {
             get_process_analysis,
             get_network_analysis,
             get_storage_analysis,
+            // v3.2.0 - Benchmark & BSOD Analysis
+            run_disk_benchmark,
+            analyze_bsod,
+            // v3.3.0 - Speedtest & Boot Analysis
+            run_speedtest,
+            analyze_boot_time,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

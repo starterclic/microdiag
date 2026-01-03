@@ -143,6 +143,76 @@ export interface Recommendation {
 }
 
 // ============================================
+// v3.2.0 - BENCHMARK & BSOD TYPES
+// ============================================
+
+export interface DiskBenchmark {
+  drive: string;
+  seq_read_mbps: number;
+  seq_write_mbps: number;
+  rand_read_iops: number;
+  rand_write_iops: number;
+  rand_read_mbps: number;
+  rand_write_mbps: number;
+  latency_us: number;
+  score: number;
+  grade: 'S' | 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A' | 'Error';
+}
+
+export interface BsodAnalysis {
+  total_crashes: number;
+  crashes: BsodCrash[];
+  most_common_cause: string;
+  recommendation: string;
+}
+
+export interface BsodCrash {
+  date: string;
+  time: string;
+  bug_check_code: string;
+  bug_check_name: string;
+  description: string;
+  probable_cause: string;
+  driver: string | null;
+  solution: string;
+}
+
+// ============================================
+// v3.3.0 - SPEEDTEST & BOOT TIME TYPES
+// ============================================
+
+export interface SpeedtestResult {
+  download_mbps: number;
+  upload_mbps: number;
+  ping_ms: number;
+  jitter_ms: number;
+  server: string;
+  isp: string;
+  grade: string;
+  status: string;
+}
+
+export interface BootAnalysis {
+  total_boot_time_seconds: number;
+  bios_time_seconds: number;
+  windows_boot_seconds: number;
+  desktop_ready_seconds: number;
+  apps_impact: AppBootImpact[];
+  grade: string;
+  optimization_potential_seconds: number;
+  recommendations: string[];
+  last_boot_time: string;
+}
+
+export interface AppBootImpact {
+  name: string;
+  impact_seconds: number;
+  impact_level: 'high' | 'medium' | 'low';
+  can_disable: boolean;
+  recommendation: string;
+}
+
+// ============================================
 // API FUNCTIONS
 // ============================================
 
@@ -180,6 +250,38 @@ export async function getNetworkAnalysis(): Promise<NetworkAnalysis> {
  */
 export async function getStorageAnalysis(): Promise<StorageAnalysis> {
   return invoke<StorageAnalysis>('get_storage_analysis');
+}
+
+/**
+ * Run disk benchmark (CrystalDiskMark style)
+ * @param drive Drive letter (e.g., "C:")
+ */
+export async function runDiskBenchmark(drive: string = 'C:'): Promise<DiskBenchmark> {
+  return invoke<DiskBenchmark>('run_disk_benchmark', { drive });
+}
+
+/**
+ * Analyze BSOD (Blue Screen) history
+ * Returns crash history and recommendations
+ */
+export async function analyzeBsod(): Promise<BsodAnalysis> {
+  return invoke<BsodAnalysis>('analyze_bsod');
+}
+
+/**
+ * Run internet speedtest
+ * Tests download, upload speed and latency
+ */
+export async function runSpeedtest(): Promise<SpeedtestResult> {
+  return invoke<SpeedtestResult>('run_speedtest');
+}
+
+/**
+ * Analyze boot time and startup impact
+ * Returns boot time breakdown and optimization recommendations
+ */
+export async function analyzeBootTime(): Promise<BootAnalysis> {
+  return invoke<BootAnalysis>('analyze_boot_time');
 }
 
 // ============================================
@@ -280,4 +382,173 @@ export function formatUptime(hours: number): string {
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
   return `${days}j ${remainingHours}h`;
+}
+
+// ============================================
+// v3.2.0 - BENCHMARK & BSOD HELPERS
+// ============================================
+
+/**
+ * Get grade color for benchmark
+ */
+export function getBenchmarkGradeColor(grade: string): string {
+  switch (grade) {
+    case 'S':
+      return 'linear-gradient(135deg, #ffd700, #ff6b00)';
+    case 'A':
+      return '#10b981';
+    case 'B':
+      return '#3b82f6';
+    case 'C':
+      return '#f59e0b';
+    case 'D':
+      return '#ef4444';
+    case 'F':
+      return '#6b7280';
+    default:
+      return '#9e9e9e';
+  }
+}
+
+/**
+ * Format benchmark speed
+ */
+export function formatBenchmarkSpeed(mbps: number): string {
+  if (mbps >= 1000) {
+    return `${(mbps / 1000).toFixed(2)} GB/s`;
+  }
+  return `${mbps.toFixed(0)} MB/s`;
+}
+
+/**
+ * Format IOPS
+ */
+export function formatIOPS(iops: number): string {
+  if (iops >= 1000000) {
+    return `${(iops / 1000000).toFixed(2)}M`;
+  }
+  if (iops >= 1000) {
+    return `${(iops / 1000).toFixed(1)}K`;
+  }
+  return iops.toString();
+}
+
+/**
+ * Get BSOD severity color
+ */
+export function getBsodSeverityColor(crashCount: number): string {
+  if (crashCount === 0) return '#10b981';
+  if (crashCount < 3) return '#f59e0b';
+  return '#ef4444';
+}
+
+/**
+ * Get benchmark status description
+ */
+export function getBenchmarkStatus(score: number): string {
+  if (score >= 90) return 'Performances exceptionnelles (NVMe haut de gamme)';
+  if (score >= 80) return 'Excellentes performances (SSD NVMe)';
+  if (score >= 60) return 'Bonnes performances (SSD SATA)';
+  if (score >= 40) return 'Performances correctes';
+  if (score >= 20) return 'Performances limitees (HDD ou SSD ancien)';
+  return 'Performances faibles - Envisagez un upgrade';
+}
+
+// ============================================
+// v3.3.0 - SPEEDTEST & BOOT TIME HELPERS
+// ============================================
+
+/**
+ * Format speed for display
+ */
+export function formatSpeed(mbps: number): string {
+  if (mbps >= 1000) {
+    return `${(mbps / 1000).toFixed(2)} Gbps`;
+  }
+  return `${mbps.toFixed(1)} Mbps`;
+}
+
+/**
+ * Get speedtest grade color
+ */
+export function getSpeedtestGradeColor(grade: string): string {
+  switch (grade) {
+    case 'Excellent':
+      return '#10b981';
+    case 'Tres bon':
+      return '#22c55e';
+    case 'Bon':
+      return '#3b82f6';
+    case 'Correct':
+      return '#f59e0b';
+    case 'Lent':
+      return '#ef4444';
+    default:
+      return '#6b7280';
+  }
+}
+
+/**
+ * Format boot time for display
+ */
+export function formatBootTime(seconds: number): string {
+  if (seconds >= 60) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  }
+  return `${seconds}s`;
+}
+
+/**
+ * Get boot time grade color
+ */
+export function getBootGradeColor(grade: string): string {
+  switch (grade) {
+    case 'Excellent':
+      return '#10b981';
+    case 'Tres bon':
+      return '#22c55e';
+    case 'Bon':
+      return '#3b82f6';
+    case 'Correct':
+      return '#f59e0b';
+    case 'Lent':
+      return '#ef4444';
+    default:
+      return '#6b7280';
+  }
+}
+
+/**
+ * Get impact level color
+ */
+export function getImpactLevelColor(level: string): string {
+  switch (level) {
+    case 'high':
+      return '#ef4444';
+    case 'medium':
+      return '#f59e0b';
+    case 'low':
+      return '#10b981';
+    default:
+      return '#6b7280';
+  }
+}
+
+/**
+ * Get speedtest status icon
+ */
+export function getSpeedtestIcon(grade: string): string {
+  switch (grade) {
+    case 'Excellent':
+    case 'Tres bon':
+      return '🚀';
+    case 'Bon':
+      return '✅';
+    case 'Correct':
+      return '⚠️';
+    default:
+      return '🐢';
+  }
 }
