@@ -60,15 +60,15 @@ export function GodModePage({ metrics }: GodModePageProps) {
     loadData();
   }, []);
 
-  // Calculate health score
-  const healthScore = metrics && deepHealth
+  // Calculate health score (only if we have metrics data)
+  const healthScore = metrics
     ? godmode.calculateHealthScore(
         metrics.cpu_usage,
         metrics.memory_percent,
         metrics.disks[0]?.percent ? 100 - metrics.disks[0].percent : 50,
         deepHealth
       )
-    : 0;
+    : null;
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-400';
@@ -224,16 +224,18 @@ export function GodModePage({ metrics }: GodModePageProps) {
       {/* Header */}
       <div className="page-header gm-header">
         <div className="gm-title">
-          <h1>GOD MODE</h1>
-          <span className="gm-subtitle">Controle Systeme Avance</span>
+          <h1>MODE EXPERT</h1>
+          <span className="gm-subtitle">Controle & Optimisation Systeme</span>
         </div>
-        <div className="gm-score">
-          <span className="score-label">Health Score</span>
-          <div className="score-display">
-            <span className={`score-value ${getScoreColor(healthScore)}`}>{healthScore}</span>
-            <span className="score-max">/100</span>
+        {healthScore !== null && (
+          <div className="gm-score">
+            <span className="score-label">Sante Systeme</span>
+            <div className="score-display">
+              <span className={`score-value ${getScoreColor(healthScore)}`}>{healthScore}</span>
+              <span className="score-max">/100</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -351,16 +353,77 @@ export function GodModePage({ metrics }: GodModePageProps) {
                     <span className="info-label">Serial</span>
                     <span className="info-value">{deepHealth.bios_serial}</span>
                   </div>
-                  <div className="info-item">
-                    <span className="info-label">Disque</span>
-                    <span className="info-value">{deepHealth.disk_model}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">SMART</span>
-                    <span className={`info-value ${deepHealth.disk_smart_status === 'OK' ? 'text-green' : 'text-red'}`}>
-                      {deepHealth.disk_smart_status}
-                    </span>
-                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SMART Disks Details - CrystalDisk Style */}
+            {deepHealth?.smart_disks && deepHealth.smart_disks.length > 0 && (
+              <div className="dashboard-card smart-card" style={{ marginTop: '1rem', background: 'rgba(30, 30, 50, 0.6)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.25rem' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '0.875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Sante des Disques</h3>
+                  <span className="smart-subtitle" style={{ fontSize: '12px', background: 'rgba(255, 107, 0, 0.1)', padding: '4px 10px', borderRadius: '12px', color: '#ff6b00' }}>SMART Diagnostic</span>
+                </div>
+                <div className="smart-disks-list">
+                  {deepHealth.smart_disks.map((disk, i) => (
+                    <div key={i} className="smart-disk-item">
+                      <div className="smart-disk-header">
+                        <div className="disk-icon">
+                          {disk.media_type === 'SSD' || disk.media_type === 'NVMe' ? '⚡' : '💿'}
+                        </div>
+                        <div className="disk-info">
+                          <span className="disk-model">{disk.model}</span>
+                          <span className="disk-meta">
+                            {disk.media_type} • {disk.size_gb.toFixed(0)} GB • {disk.interface_type}
+                          </span>
+                        </div>
+                        <div className={`disk-health-badge ${disk.health_status === 'Bon' ? 'good' : disk.health_status === 'Attention' ? 'warning' : 'critical'}`}>
+                          <span className="health-percent">{disk.health_percent}%</span>
+                          <span className="health-label">{disk.health_status}</span>
+                        </div>
+                      </div>
+                      <div className="smart-attributes">
+                        {disk.temperature_c && (
+                          <div className="smart-attr">
+                            <span className="attr-icon">🌡️</span>
+                            <span className="attr-label">Temp</span>
+                            <span className="attr-value">{disk.temperature_c}°C</span>
+                          </div>
+                        )}
+                        {disk.power_on_hours && (
+                          <div className="smart-attr">
+                            <span className="attr-icon">⏱️</span>
+                            <span className="attr-label">Heures</span>
+                            <span className="attr-value">{disk.power_on_hours.toLocaleString()}h</span>
+                          </div>
+                        )}
+                        {disk.power_on_count && (
+                          <div className="smart-attr">
+                            <span className="attr-icon">🔄</span>
+                            <span className="attr-label">Cycles</span>
+                            <span className="attr-value">{disk.power_on_count}</span>
+                          </div>
+                        )}
+                        {disk.reallocated_sectors !== null && disk.reallocated_sectors !== undefined && (
+                          <div className={`smart-attr ${disk.reallocated_sectors > 0 ? 'warning' : ''}`}>
+                            <span className="attr-icon">⚠️</span>
+                            <span className="attr-label">Secteurs</span>
+                            <span className="attr-value">{disk.reallocated_sectors}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="disk-health-bar">
+                        <div
+                          className="health-fill"
+                          style={{
+                            width: `${disk.health_percent}%`,
+                            background: disk.health_percent >= 80 ? '#10b981' :
+                                       disk.health_percent >= 50 ? '#f59e0b' : '#ef4444'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
