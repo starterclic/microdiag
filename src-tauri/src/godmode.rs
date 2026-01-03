@@ -50,6 +50,17 @@ pub struct DeepHealth {
     pub windows_version: String,
     pub computer_name: String,
     pub smart_disks: Vec<SmartDiskInfo>,
+    pub drivers: Vec<DriverInfo>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct DriverInfo {
+    pub name: String,
+    pub version: String,
+    pub driver_type: String,  // GPU, Chipset, Network, Audio
+    pub manufacturer: String,
+    pub driver_date: String,
+    pub status: String,
 }
 
 // ============================================
@@ -455,6 +466,91 @@ fn extract_u64(variant: Option<&wmi::Variant>) -> u64 {
 }
 
 // ============================================
+// CRITICAL DRIVERS (GPU, Network, Chipset)
+// ============================================
+
+#[cfg(windows)]
+fn get_critical_drivers(wmi_con: &wmi::WMIConnection) -> Vec<DriverInfo> {
+    let mut drivers = Vec::new();
+
+    // Query PnP Signed Drivers for critical hardware
+    let driver_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+        .raw_query("SELECT DeviceName, DriverVersion, Manufacturer, DriverDate, DeviceClass, Status FROM Win32_PnPSignedDriver WHERE DeviceClass='Display' OR DeviceClass='Net' OR DeviceClass='SCSIAdapter' OR DeviceClass='System' OR DeviceClass='MEDIA'")
+        .unwrap_or_default();
+
+    for drv in driver_results {
+        let device_name = extract_string(drv.get("DeviceName"));
+        let version = extract_string(drv.get("DriverVersion"));
+        let manufacturer = extract_string(drv.get("Manufacturer"));
+        let driver_date = extract_string(drv.get("DriverDate"));
+        let device_class = extract_string(drv.get("DeviceClass"));
+        let status = extract_string(drv.get("Status"));
+
+        // Determine driver type based on device class and name
+        let driver_type = if device_class == "Display" || device_name.to_lowercase().contains("nvidia")
+            || device_name.to_lowercase().contains("amd") || device_name.to_lowercase().contains("intel") && device_name.to_lowercase().contains("graphics") {
+            "GPU"
+        } else if device_class == "Net" {
+            "Network"
+        } else if device_class == "System" || device_name.to_lowercase().contains("chipset") {
+            "Chipset"
+        } else if device_class == "MEDIA" || device_name.to_lowercase().contains("audio") {
+            "Audio"
+        } else {
+            "Other"
+        };
+
+        // Only add important drivers (GPU, Network, Chipset, Audio)
+        if driver_type != "Other" && !version.is_empty() {
+            // Format driver date (remove time part if exists)
+            let formatted_date = if let Some(date_part) = driver_date.split('.').next() {
+                // Convert WMI date format (YYYYMMDD) to DD/MM/YYYY
+                if date_part.len() >= 8 {
+                    let year = &date_part[0..4];
+                    let month = &date_part[4..6];
+                    let day = &date_part[6..8];
+                    format!("{}/{}/{}", day, month, year)
+                } else {
+                    driver_date.clone()
+                }
+            } else {
+                driver_date.clone()
+            };
+
+            drivers.push(DriverInfo {
+                name: device_name,
+                version,
+                driver_type: driver_type.to_string(),
+                manufacturer,
+                driver_date: formatted_date,
+                status: if status == "OK" { "OK".to_string() } else { status },
+            });
+        }
+    }
+
+    // Sort by driver type (GPU first, then Network, Chipset, Audio)
+    drivers.sort_by(|a, b| {
+        let order_a = match a.driver_type.as_str() {
+            "GPU" => 0,
+            "Network" => 1,
+            "Chipset" => 2,
+            "Audio" => 3,
+            _ => 4,
+        };
+        let order_b = match b.driver_type.as_str() {
+            "GPU" => 0,
+            "Network" => 1,
+            "Chipset" => 2,
+            "Audio" => 3,
+            _ => 4,
+        };
+        order_a.cmp(&order_b)
+    });
+
+    drivers
+}
+
+// ============================================
 // DEEP HEALTH (WMI)
 // ============================================
 
@@ -508,6 +604,7 @@ pub fn get_deep_health() -> DeepHealth {
 
         let battery = get_battery_health(&wmi_con);
         let smart_disks = get_smart_disk_info(&wmi_con);
+        let drivers = get_critical_drivers(&wmi_con);
 
         Some(DeepHealth {
             bios_serial,
@@ -520,6 +617,7 @@ pub fn get_deep_health() -> DeepHealth {
             windows_version,
             computer_name,
             smart_disks,
+            drivers,
         })
     })();
 
@@ -587,6 +685,7 @@ $result | ConvertTo-Json -Compress
         windows_version: "Windows".into(),
         computer_name: std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into()),
         smart_disks: Vec::new(),
+        drivers: Vec::new(),
     };
 
     if let Ok(out) = output {

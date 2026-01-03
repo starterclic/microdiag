@@ -36,6 +36,16 @@ export interface DeepHealth {
   windows_version: string;
   computer_name: string;
   smart_disks: SmartDiskInfo[];
+  drivers: DriverInfo[];
+}
+
+export interface DriverInfo {
+  name: string;
+  version: string;
+  driver_type: string;  // GPU, Network, Chipset, Audio
+  manufacturer: string;
+  driver_date: string;
+  status: string;
 }
 
 // CrystalDisk-style SMART info

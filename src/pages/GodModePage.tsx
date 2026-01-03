@@ -427,6 +427,56 @@ export function GodModePage({ metrics }: GodModePageProps) {
                 </div>
               </div>
             )}
+
+            {/* Drivers Info */}
+            {deepHealth?.drivers && deepHealth.drivers.length > 0 && (
+              <div className="deep-health-info" style={{ marginTop: '1rem' }}>
+                <h3>Pilotes (Drivers)</h3>
+                <div className="info-grid" style={{ gridTemplateColumns: '1fr', gap: '0.75rem' }}>
+                  {deepHealth.drivers.map((driver, i) => (
+                    <div key={i} className="driver-item" style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      padding: '0.75rem 1rem',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.08)'
+                    }}>
+                      <span style={{ fontSize: '1.5rem' }}>
+                        {driver.driver_type === 'GPU' ? '🎮' :
+                         driver.driver_type === 'Network' ? '🌐' :
+                         driver.driver_type === 'Chipset' ? '🔧' :
+                         driver.driver_type === 'Audio' ? '🔊' : '⚙️'}
+                      </span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+                          {driver.name}
+                        </div>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                          {driver.manufacturer} • v{driver.version}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{
+                          fontSize: '0.75rem',
+                          padding: '0.25rem 0.5rem',
+                          borderRadius: '4px',
+                          background: driver.status === 'OK' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                          color: driver.status === 'OK' ? '#10b981' : '#ef4444',
+                          marginBottom: '0.25rem'
+                        }}>
+                          {driver.status}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {driver.driver_date}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
