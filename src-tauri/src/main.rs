@@ -445,6 +445,11 @@ fn gm_restore_backup(backup_path: String) -> godmode::TweakResult {
     godmode::restore_backup(&backup_path)
 }
 
+#[tauri::command]
+async fn gm_install_rustdesk() -> godmode::RustDeskResult {
+    godmode::install_rustdesk().await
+}
+
 // ============================================
 // PREMIUM DIAGNOSTICS COMMANDS
 // ============================================
@@ -787,6 +792,7 @@ fn main() {
             gm_ghost_mode,
             gm_list_backups,
             gm_restore_backup,
+            gm_install_rustdesk,
             // Premium Diagnostics commands
             run_premium_diagnostic,
             get_temperatures,

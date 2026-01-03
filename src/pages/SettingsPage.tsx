@@ -2,8 +2,16 @@
 // MICRODIAG SENTINEL - Settings Page
 // ============================================
 
+import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { SystemMetrics, SecurityStatus } from '../types';
 import { APP_VERSION } from '../constants';
+
+interface RustDeskResult {
+  success: boolean;
+  message: string;
+  rustdesk_id: string | null;
+}
 
 interface SettingsPageProps {
   metrics: SystemMetrics | null;
@@ -22,6 +30,27 @@ export function SettingsPage({
   onCheckUpdates,
   onRestartTutorial,
 }: SettingsPageProps) {
+  const [rustdeskLoading, setRustdeskLoading] = useState(false);
+  const [rustdeskId, setRustdeskId] = useState<string | null>(null);
+  const [rustdeskError, setRustdeskError] = useState<string | null>(null);
+
+  const handleInstallRustdesk = async () => {
+    setRustdeskLoading(true);
+    setRustdeskError(null);
+    try {
+      const result = await invoke<RustDeskResult>('gm_install_rustdesk');
+      if (result.success) {
+        setRustdeskId(result.rustdesk_id);
+      } else {
+        setRustdeskError(result.message);
+      }
+    } catch (err) {
+      setRustdeskError(String(err));
+    } finally {
+      setRustdeskLoading(false);
+    }
+  };
+
   return (
     <div className="page settings-page">
       <div className="page-header">
@@ -98,6 +127,34 @@ export function SettingsPage({
               Revoir le tutoriel
             </button>
           </div>
+        </section>
+
+        <section className="setting-group">
+          <h3>Support a distance</h3>
+          <p style={{ color: '#888', marginBottom: '12px', fontSize: '13px' }}>
+            Permettez a un technicien Microdiag de vous aider a distance.
+          </p>
+          {rustdeskId ? (
+            <div style={{ background: '#1a2e1a', border: '1px solid #22c55e', borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
+              <p style={{ color: '#22c55e', fontWeight: 600, marginBottom: '8px' }}>Support pret</p>
+              <p style={{ fontSize: '28px', fontWeight: 700, letterSpacing: '2px', color: '#fff' }}>{rustdeskId}</p>
+              <p style={{ color: '#888', fontSize: '12px', marginTop: '8px' }}>Communiquez cet ID au support</p>
+            </div>
+          ) : (
+            <div className="update-actions">
+              <button
+                className={`update-btn ${rustdeskLoading ? 'checking' : ''}`}
+                onClick={handleInstallRustdesk}
+                disabled={rustdeskLoading}
+                style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}
+              >
+                {rustdeskLoading ? 'Installation...' : 'Activer le support a distance'}
+              </button>
+              {rustdeskError && (
+                <p style={{ color: '#ef4444', marginTop: '8px', fontSize: '13px' }}>{rustdeskError}</p>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="setting-group">

@@ -802,3 +802,156 @@ pub fn restore_backup(_backup_path: &str) -> TweakResult {
         backup_path: None,
     }
 }
+
+// ============================================
+// RUSTDESK REMOTE SUPPORT
+// ============================================
+
+#[derive(Serialize, Clone)]
+pub struct RustDeskResult {
+    pub success: bool,
+    pub message: String,
+    pub rustdesk_id: Option<String>,
+}
+
+const RUSTDESK_CONFIG: &str = "9JSPJl0dmNWWjJmbWJVbMFUU5oHNyVzM2pHVrUEMEZlMIlXS3IFRxR0VZlUOIJiOikXZrJCLiIiOikGchJCLiInZuMXdsBXLpRmcv5yazVGZ0NXdyJiOikXYsVmciwiIyZmLzVHbw1SakJ3bus2clRGdzVnciojI0N3boJye";
+
+#[cfg(windows)]
+pub async fn install_rustdesk() -> RustDeskResult {
+    use std::process::Command;
+    use std::path::PathBuf;
+    use std::fs;
+    use std::thread;
+    use std::time::Duration;
+
+    // 1. Check if already installed
+    let rustdesk_paths = vec![
+        PathBuf::from(r"C:\Program Files\RustDesk\rustdesk.exe"),
+        PathBuf::from(r"C:\Program Files (x86)\RustDesk\rustdesk.exe"),
+        PathBuf::from(format!(r"{}\RustDesk\rustdesk.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+    ];
+
+    let mut rustdesk_exe: Option<PathBuf> = None;
+    for path in &rustdesk_paths {
+        if path.exists() {
+            rustdesk_exe = Some(path.clone());
+            break;
+        }
+    }
+
+    // 2. Install via winget if not found
+    if rustdesk_exe.is_none() {
+        let install = Command::new("winget")
+            .args([
+                "install",
+                "--id", "RustDesk.RustDesk",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        match install {
+            Ok(output) if output.status.success() => {
+                thread::sleep(Duration::from_secs(3));
+                // Find exe after install
+                for path in &rustdesk_paths {
+                    if path.exists() {
+                        rustdesk_exe = Some(path.clone());
+                        break;
+                    }
+                }
+            }
+            Ok(output) => {
+                return RustDeskResult {
+                    success: false,
+                    message: format!("Echec installation: {}", String::from_utf8_lossy(&output.stderr)),
+                    rustdesk_id: None,
+                };
+            }
+            Err(e) => {
+                return RustDeskResult {
+                    success: false,
+                    message: format!("Winget non disponible: {}", e),
+                    rustdesk_id: None,
+                };
+            }
+        }
+    }
+
+    let exe_path = match rustdesk_exe {
+        Some(p) => p,
+        None => {
+            return RustDeskResult {
+                success: false,
+                message: "RustDesk introuvable apres installation".into(),
+                rustdesk_id: None,
+            };
+        }
+    };
+
+    // 3. Inject config (server: rustdesk.ordi-plus.fr)
+    let _ = Command::new(&exe_path)
+        .args(["--config", RUSTDESK_CONFIG])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    thread::sleep(Duration::from_millis(500));
+
+    // 4. Launch RustDesk
+    let _ = Command::new(&exe_path)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+
+    thread::sleep(Duration::from_secs(2));
+
+    // 5. Get RustDesk ID
+    let mut rustdesk_id: Option<String> = None;
+
+    // Try --get-id command
+    if let Ok(output) = Command::new(&exe_path)
+        .args(["--get-id"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !id.is_empty() && id.chars().all(|c| c.is_numeric()) {
+            rustdesk_id = Some(id);
+        }
+    }
+
+    // Fallback: read from config file
+    if rustdesk_id.is_none() {
+        let config_path = format!(r"{}\RustDesk\config\RustDesk2.toml",
+            std::env::var("APPDATA").unwrap_or_default());
+        if let Ok(content) = fs::read_to_string(&config_path) {
+            for line in content.lines() {
+                if line.starts_with("id") {
+                    if let Some(id) = line.split('=').nth(1) {
+                        let id = id.trim().trim_matches(|c| c == '"' || c == '\'');
+                        if !id.is_empty() {
+                            rustdesk_id = Some(id.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    RustDeskResult {
+        success: true,
+        message: format!("RustDesk pret - Serveur: rustdesk.ordi-plus.fr"),
+        rustdesk_id,
+    }
+}
+
+#[cfg(not(windows))]
+pub async fn install_rustdesk() -> RustDeskResult {
+    RustDeskResult {
+        success: false,
+        message: "RustDesk uniquement disponible sur Windows".into(),
+        rustdesk_id: None,
+    }
+}
