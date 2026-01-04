@@ -403,18 +403,32 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
 fn find_crystaldiskinfo_exe() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
+    // PRIORITY 1: Bundled portable version (zero friction)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // Check in tools subfolder next to executable
+            let bundled = exe_dir.join("tools").join("CrystalDiskInfo").join("DiskInfo64.exe");
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            // Also check directly in tools folder (flat structure)
+            let bundled_flat = exe_dir.join("tools").join("DiskInfo64.exe");
+            if bundled_flat.exists() {
+                return Some(bundled_flat);
+            }
+        }
+    }
+
+    // PRIORITY 2: System installed versions (fallback)
     let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
     let programfiles = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let programfiles86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
 
     let possible_paths = vec![
-        // Standard install locations
         PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", programfiles)),
         PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo32.exe", programfiles86)),
-        // Winget install location (user scope)
         PathBuf::from(format!(r"{}\Microsoft\WinGet\Packages\CrystalDewWorld.CrystalDiskInfo_Microsoft.Winget.Source_8wekyb3d8bbwe\DiskInfo64.exe", localappdata)),
         PathBuf::from(format!(r"{}\Programs\CrystalDiskInfo\DiskInfo64.exe", localappdata)),
-        // Portable
         PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", localappdata)),
     ];
 
@@ -424,7 +438,7 @@ fn find_crystaldiskinfo_exe() -> Option<std::path::PathBuf> {
         }
     }
 
-    // Try to find via where command
+    // PRIORITY 3: Try where command
     use std::process::Command;
     if let Ok(output) = Command::new("where")
         .arg("DiskInfo64.exe")
@@ -712,15 +726,28 @@ pub struct HardwareTemperatures {
 fn find_librehardwaremonitor_exe() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
+    // PRIORITY 1: Bundled portable version (zero friction)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join("tools").join("LibreHardwareMonitor").join("LibreHardwareMonitor.exe");
+            if bundled.exists() {
+                return Some(bundled);
+            }
+            let bundled_flat = exe_dir.join("tools").join("LibreHardwareMonitor.exe");
+            if bundled_flat.exists() {
+                return Some(bundled_flat);
+            }
+        }
+    }
+
+    // PRIORITY 2: System installed versions (fallback)
     let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
     let programfiles = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
     let programfiles86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
 
     let possible_paths = vec![
-        // Standard install locations
         PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", programfiles)),
         PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", programfiles86)),
-        // Winget install location
         PathBuf::from(format!(r"{}\Microsoft\WinGet\Packages\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.Winget.Source_8wekyb3d8bbwe\LibreHardwareMonitor.exe", localappdata)),
         PathBuf::from(format!(r"{}\Programs\LibreHardwareMonitor\LibreHardwareMonitor.exe", localappdata)),
         PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", localappdata)),
@@ -732,7 +759,7 @@ fn find_librehardwaremonitor_exe() -> Option<std::path::PathBuf> {
         }
     }
 
-    // Try to find via where command
+    // PRIORITY 3: Try where command
     use std::process::Command;
     if let Ok(output) = Command::new("where")
         .arg("LibreHardwareMonitor.exe")

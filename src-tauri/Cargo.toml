@@ -1,6 +1,6 @@
 [package]
 name = "microdiag-sentinel"
-version = "3.10.1"
+version = "3.11.0"
 description = "Microdiag Sentinel Agent - Surveillance système intelligente"
 authors = ["Microdiag Team"]
 license = "MIT"
@@ -9,6 +9,7 @@ edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2.5.3", features = [] }
+winres = "0.1"
 
 [dependencies]
 tauri = { version = "2.9.5", features = ["tray-icon"] }

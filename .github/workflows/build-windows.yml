@@ -32,6 +32,31 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download portable diagnostic tools
+        shell: pwsh
+        run: |
+          # Create tools directory
+          New-Item -ItemType Directory -Force -Path "tools/CrystalDiskInfo"
+          New-Item -ItemType Directory -Force -Path "tools/LibreHardwareMonitor"
+
+          # Download CrystalDiskInfo Portable (MIT License)
+          Write-Host "Downloading CrystalDiskInfo..."
+          $cdiUrl = "https://github.com/hiyohiyo/CrystalDiskInfo/releases/download/9.4.4/CrystalDiskInfo9_4_4.zip"
+          Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip"
+          Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force
+          Remove-Item "cdi.zip"
+
+          # Download LibreHardwareMonitor Portable (MPL-2.0 License)
+          Write-Host "Downloading LibreHardwareMonitor..."
+          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.4/LibreHardwareMonitor-net472.zip"
+          Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip"
+          Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force
+          Remove-Item "lhm.zip"
+
+          # Verify downloads
+          Write-Host "=== Downloaded Tools ==="
+          Get-ChildItem -Path "tools" -Recurse | Where-Object { $_.Name -like "*.exe" }
+
       - name: Build Tauri app (signed)
         run: npm run tauri build
         env:
@@ -93,6 +118,20 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      - name: Download portable diagnostic tools
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "tools/CrystalDiskInfo"
+          New-Item -ItemType Directory -Force -Path "tools/LibreHardwareMonitor"
+          $cdiUrl = "https://github.com/hiyohiyo/CrystalDiskInfo/releases/download/9.4.4/CrystalDiskInfo9_4_4.zip"
+          Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip"
+          Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force
+          Remove-Item "cdi.zip"
+          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.4/LibreHardwareMonitor-net472.zip"
+          Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip"
+          Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force
+          Remove-Item "lhm.zip"
 
       - name: Build Tauri app (signed)
         run: npm run tauri build
