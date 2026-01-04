@@ -14,10 +14,10 @@ const SCAN_STEPS = [
   { icon: '📦', label: 'Applications' },
   { icon: '🌐', label: 'Bureau distant' },
   { icon: '🔌', label: 'Ports reseau' },
-  { icon: '🔍', label: 'Extensions navigateur' },
   { icon: '🚀', label: 'Demarrage' },
-  { icon: '💾', label: 'Espace disque' },
   { icon: '🔄', label: 'Mises a jour' },
+  { icon: '💾', label: 'Espace disque' },
+  { icon: '📊', label: 'Generation rapport' },
 ];
 
 // Categories thematiques pour le rapport

@@ -28,7 +28,8 @@ function Add-Section {
 # ============================================
 # 1. ANALYSE DES LOGS WINDOWS
 # ============================================
-Write-Host "[1/8] Analyse des logs systeme..."
+[Console]::Out.WriteLine("[1/10] Analyse des logs systeme...")
+[Console]::Out.Flush()
 $logItems = @()
 $errorLogs = Get-WinEvent -FilterHashtable @{LogName='System';Level=2;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 20 2>$null
 $warningLogs = Get-WinEvent -FilterHashtable @{LogName='System';Level=3;StartTime=(Get-Date).AddDays(-7)} -MaxEvents 10 2>$null
@@ -58,7 +59,8 @@ Add-Section -title "Logs Systeme (7 jours)" -icon "logs" -status $logStatus -ite
 # ============================================
 # 2. ECRANS BLEUS (BSOD)
 # ============================================
-Write-Host "[2/8] Recherche d'ecrans bleus..."
+[Console]::Out.WriteLine("[2/10] Recherche d'ecrans bleus...")
+[Console]::Out.Flush()
 $bsodItems = @()
 $minidumpPath = "$env:SystemRoot\Minidump"
 $bsodCount = 0
@@ -85,7 +87,8 @@ Add-Section -title "Ecrans Bleus (BSOD)" -icon "bsod" -status $bsodStatus -items
 # ============================================
 # 3. PROTECTION ANTIVIRUS
 # ============================================
-Write-Host "[3/8] Verification antivirus..."
+[Console]::Out.WriteLine("[3/10] Verification antivirus...")
+[Console]::Out.Flush()
 $avStatus = Get-CimInstance -Namespace "root/SecurityCenter2" -ClassName "AntiVirusProduct" 2>$null
 $avEnabled = $false
 $avName = "Non detecte"
@@ -110,7 +113,8 @@ Add-Section -title "Protection Antivirus" -icon "shield" -status $avScanStatus -
 # ============================================
 # 4. APPLICATIONS A RISQUE
 # ============================================
-Write-Host "[4/8] Analyse des applications..."
+[Console]::Out.WriteLine("[4/10] Analyse des applications...")
+[Console]::Out.Flush()
 $appItems = @()
 $riskyApps = @("TeamViewer", "AnyDesk", "UltraViewer", "uTorrent", "BitTorrent", "CCleaner", "IObit")
 $installedApps = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" 2>$null |
@@ -135,7 +139,8 @@ Add-Section -title "Applications a Risque" -icon "apps" -status $appStatus -item
 # ============================================
 # 5. RDP (Bureau a Distance)
 # ============================================
-Write-Host "[5/8] Verification RDP..."
+[Console]::Out.WriteLine("[5/10] Verification RDP...")
+[Console]::Out.Flush()
 $rdpEnabled = (Get-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -ErrorAction SilentlyContinue).fDenyTSConnections -eq 0
 $rdpPort = (Get-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "PortNumber" -ErrorAction SilentlyContinue).PortNumber
 
@@ -150,7 +155,8 @@ Add-Section -title "Bureau a Distance (RDP)" -icon "rdp" -status $rdpStatus -ite
 # ============================================
 # 6. PORTS RESEAU
 # ============================================
-Write-Host "[6/8] Scan des ports..."
+[Console]::Out.WriteLine("[6/10] Scan des ports...")
+[Console]::Out.Flush()
 $openPorts = @()
 $riskyPorts = @(21, 22, 23, 135, 139, 445, 3389, 5900)
 $connections = Get-NetTCPConnection -State Listen 2>$null | Select-Object LocalPort, OwningProcess -Unique
@@ -173,7 +179,8 @@ Add-Section -title "Ports Reseau" -icon "network" -status $portStatus -items @{
 # ============================================
 # 7. PROGRAMMES AU DEMARRAGE
 # ============================================
-Write-Host "[7/8] Analyse du demarrage..."
+[Console]::Out.WriteLine("[7/10] Analyse du demarrage...")
+[Console]::Out.Flush()
 $startupItems = @()
 $startupPaths = @(
     "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -204,7 +211,8 @@ Add-Section -title "Programmes au Demarrage" -icon "startup" -status $startupSta
 # ============================================
 # 8. MISES A JOUR WINDOWS
 # ============================================
-Write-Host "[8/8] Verification des mises a jour..."
+[Console]::Out.WriteLine("[8/10] Verification des mises a jour...")
+[Console]::Out.Flush()
 $lastUpdate = (Get-HotFix | Sort-Object InstalledOn -Descending -ErrorAction SilentlyContinue | Select-Object -First 1).InstalledOn
 $daysSinceUpdate = if ($lastUpdate) { ((Get-Date) - $lastUpdate).Days } else { 999 }
 
@@ -215,6 +223,44 @@ Add-Section -title "Mises a Jour Windows" -icon "update" -status $updateStatus -
     days_since = $daysSinceUpdate
 } -explanation "Les mises a jour corrigent des failles de securite. Un systeme non mis a jour est vulnerable." `
   -action $(if ($daysSinceUpdate -gt 30) { "Installez les mises a jour Windows pendantes." } else { "Systeme a jour." })
+
+# ============================================
+# 9. ESPACE DISQUE
+# ============================================
+[Console]::Out.WriteLine("[9/10] Verification espace disque...")
+[Console]::Out.Flush()
+$diskItems = @()
+$drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used -ne $null }
+$diskWarning = $false
+
+foreach ($drive in $drives) {
+    $total = [math]::Round($drive.Used + $drive.Free, 2)
+    $freePercent = if ($total -gt 0) { [math]::Round(($drive.Free / $total) * 100, 1) } else { 0 }
+    $usedGB = [math]::Round($drive.Used / 1GB, 1)
+    $freeGB = [math]::Round($drive.Free / 1GB, 1)
+
+    if ($freePercent -lt 15) { $diskWarning = $true }
+
+    $diskItems += @{
+        drive = "$($drive.Name):"
+        usedGB = $usedGB
+        freeGB = $freeGB
+        freePercent = $freePercent
+    }
+}
+
+$diskStatus = if ($diskWarning) { "warning" } else { "ok" }
+Add-Section -title "Espace Disque" -icon "disk" -status $diskStatus -items @{
+    summary = if ($diskWarning) { "Espace disque faible detecte" } else { "Espace disque suffisant" }
+    details = $diskItems
+} -explanation "Un disque presque plein peut ralentir votre PC et empecher les mises a jour." `
+  -action $(if ($diskWarning) { "Liberez de l'espace en supprimant des fichiers inutiles." } else { "Aucune action requise." })
+
+# ============================================
+# 10. GENERATION DU RAPPORT
+# ============================================
+[Console]::Out.WriteLine("[10/10] Generation du rapport...")
+[Console]::Out.Flush()
 
 # ============================================
 # CALCUL DU SCORE

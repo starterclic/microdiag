@@ -262,8 +262,10 @@ fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Resu
 }
 
 #[tauri::command]
-async fn run_security_scan() -> Result<serde_json::Value, String> {
-    use std::process::Command;
+async fn run_security_scan(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    use std::process::{Command, Stdio};
+    use std::io::{BufRead, BufReader};
+    use tauri::Emitter;
 
     let scan_script = include_str!("../../scripts/full_security_scan.ps1");
 
@@ -272,39 +274,83 @@ async fn run_security_scan() -> Result<serde_json::Value, String> {
     let script_path = temp_dir.join("mdiag_security_scan.ps1");
     std::fs::write(&script_path, scan_script).map_err(|e| format!("Erreur ecriture: {}", e))?;
 
+    // Emit scan start
+    let _ = app.emit("scan-progress", serde_json::json!({
+        "step": 0,
+        "message": "Initialisation de l'analyse...",
+        "progress": 0
+    }));
+
     #[cfg(windows)]
-    let output = Command::new("powershell")
+    let mut child = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_path.to_string_lossy()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Erreur execution: {}", e))?;
+        .spawn()
+        .map_err(|e| format!("Erreur lancement: {}", e))?;
 
     #[cfg(not(windows))]
-    let output = Command::new("pwsh")
+    let mut child = Command::new("pwsh")
         .args(["-NoProfile", "-File", &script_path.to_string_lossy()])
-        .output()
-        .map_err(|e| format!("Erreur execution: {}", e))?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Erreur lancement: {}", e))?;
 
-    let _ = std::fs::remove_file(&script_path);
+    let stdout = child.stdout.take().unwrap();
+    let reader = BufReader::new(stdout);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut output_lines = Vec::new();
+    let mut current_step = 0;
+    let mut json_result: Option<serde_json::Value> = None;
 
-    // Find JSON line (starts with '{' and ends with '}')
-    let json_str = stdout
-        .lines()
-        .find(|line| line.trim().starts_with('{') && line.trim().ends_with('}'))
-        .or_else(|| stdout.lines().last())
-        .unwrap_or("{}");
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            // Check if this is the JSON output
+            if line.trim().starts_with('{') && line.trim().ends_with('}') {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    json_result = Some(json);
+                }
+                continue;
+            }
 
-    // Try to parse JSON
-    match serde_json::from_str::<serde_json::Value>(json_str) {
-        Ok(json) => Ok(json),
-        Err(e) => {
-            // Return debug info if parsing fails
-            Err(format!("Parse error: {}. Exit: {}. Stderr: {}", e, output.status, stderr))
+            // Parse step progress from lines like "[1/8] Analyse des logs..."
+            if line.contains("[") && line.contains("/") && line.contains("]") {
+                if let Some(start) = line.find('[') {
+                    if let Some(slash) = line.find('/') {
+                        if let Ok(step) = line[start+1..slash].parse::<u8>() {
+                            current_step = step;
+                            let progress = (step as u32 * 100) / 10; // 10 total steps
+
+                            // Emit progress event
+                            let _ = app.emit("scan-progress", serde_json::json!({
+                                "step": current_step,
+                                "message": line.clone(),
+                                "progress": progress
+                            }));
+                        }
+                    }
+                }
+            }
+
+            output_lines.push(line);
         }
     }
+
+    // Wait for completion
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&script_path);
+
+    // Emit completion
+    let _ = app.emit("scan-progress", serde_json::json!({
+        "step": 10,
+        "message": "Analyse terminée !",
+        "progress": 100
+    }));
+
+    // Return the JSON result
+    json_result.ok_or_else(|| "Aucun resultat JSON trouve".to_string())
 }
 
 // ============================================

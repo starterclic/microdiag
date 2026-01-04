@@ -28,9 +28,6 @@ import { ScriptExecutionModal, ExecutionPhase, ExecutionStep, parseScriptSteps, 
 // Pages
 import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage, DiagnosticPage, FixWinPage } from './pages';
 
-// Scan steps timing (10 steps)
-const SCAN_STEP_DURATION = 1500;
-
 function App() {
   // Core state
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
@@ -709,7 +706,7 @@ function App() {
   };
 
   // ==========================================
-  // SECURITY SCAN
+  // SECURITY SCAN - Real-time streaming
   // ==========================================
   const runSecurityScan = async () => {
     setScanRunning(true);
@@ -718,29 +715,25 @@ function App() {
     setScanReport(null);
     setScanError(null);
 
-    const scanPromise = invoke<ScanReport>('run_security_scan');
-    let currentStep = 0;
-
-    const stepInterval = setInterval(() => {
-      if (currentStep < 10) {
-        setScanStep(currentStep);
-        setScanProgress(Math.min(95, (currentStep + 1) * 10));
-        currentStep++;
-      }
-    }, SCAN_STEP_DURATION);
+    // Listen for real-time progress events from Rust
+    const unlisten = await listen<{ step: number; message: string; progress: number }>('scan-progress', (event) => {
+      const { step, progress } = event.payload;
+      setScanStep(step);
+      setScanProgress(progress);
+    });
 
     try {
-      const report = await scanPromise;
-      clearInterval(stepInterval);
+      const report = await invoke<ScanReport>('run_security_scan');
+      unlisten();
       setScanProgress(100);
-      setScanStep(8);
+      setScanStep(10);
       setTimeout(() => {
         setScanReport(report);
         setScanRunning(false);
-      }, 500);
+      }, 300);
       await invoke('send_notification', { title: 'Scan termine', body: `Score: ${report.score}/100` });
     } catch (error) {
-      clearInterval(stepInterval);
+      unlisten();
       setScanRunning(false);
       setScanError(String(error));
     }
