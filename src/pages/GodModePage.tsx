@@ -38,6 +38,8 @@ export function GodModePage({ metrics }: GodModePageProps) {
   const [selectedInstallApps, setSelectedInstallApps] = useState<Set<string>>(new Set());
   const [installing, setInstalling] = useState(false);
   const [tweakStates, setTweakStates] = useState<Record<string, boolean>>({});
+  const [crystalDiskInstalled, setCrystalDiskInstalled] = useState<boolean | null>(null);
+  const [installingCrystalDisk, setInstallingCrystalDisk] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -57,6 +59,13 @@ export function GodModePage({ metrics }: GodModePageProps) {
         setDeepHealth(health);
         setApps(appList);
         setStartupItems(startup);
+
+        // Check CrystalDiskInfo if no SMART data
+        const hasSmartData = health?.smart_disks?.some(d => d.temperature_c !== null || d.power_on_hours !== null);
+        if (!hasSmartData) {
+          const cdiStatus = await godmode.checkCrystalDiskInfo();
+          setCrystalDiskInstalled(cdiStatus.installed);
+        }
       } catch (e) {
         console.error('Error loading Mode Expert data:', e);
       } finally {
@@ -187,6 +196,29 @@ export function GodModePage({ metrics }: GodModePageProps) {
       }
     } catch (e) {
       toast.error('Erreur: ' + e);
+    }
+  };
+
+  const handleInstallCrystalDiskInfo = async () => {
+    setInstallingCrystalDisk(true);
+    toast.info('Installation de CrystalDiskInfo via winget...');
+    try {
+      const result = await godmode.installCrystalDiskInfo();
+      if (result.success) {
+        toast.success(result.message);
+        setCrystalDiskInstalled(true);
+        // Reload SMART data after installation
+        setTimeout(async () => {
+          const health = await godmode.getDeepHealth();
+          setDeepHealth(health);
+        }, 3000);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    } finally {
+      setInstallingCrystalDisk(false);
     }
   };
 
@@ -458,11 +490,53 @@ export function GodModePage({ metrics }: GodModePageProps) {
                 </div>
               </div>
             ) : deepHealth && (
-              <div style={{ padding: '1rem', background: 'rgba(100, 100, 100, 0.1)', borderRadius: '8px', marginTop: '1rem', textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>💿</div>
-                <div style={{ fontWeight: 500 }}>Diagnostic SMART en cours...</div>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                  Si aucune donnée n'apparaît, votre disque ne supporte peut-être pas les requêtes SMART standard.
+              <div style={{ padding: '1.5rem', background: 'rgba(255, 107, 0, 0.08)', borderRadius: '12px', marginTop: '1rem', textAlign: 'center', border: '1px solid rgba(255, 107, 0, 0.2)' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>💿</div>
+                <div style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Donnees SMART non disponibles</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
+                  Les disques NVMe necessitent CrystalDiskInfo pour lire les donnees SMART detaillees
+                  (temperature, heures d'utilisation, sante).
+                </div>
+                {crystalDiskInstalled === false && (
+                  <button
+                    onClick={handleInstallCrystalDiskInfo}
+                    disabled={installingCrystalDisk}
+                    style={{
+                      background: 'linear-gradient(135deg, #ff6b00 0%, #ff8c00 100%)',
+                      color: 'white',
+                      border: 'none',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '8px',
+                      cursor: installingCrystalDisk ? 'wait' : 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      opacity: installingCrystalDisk ? 0.7 : 1,
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {installingCrystalDisk ? (
+                      <>⏳ Installation en cours...</>
+                    ) : (
+                      <>📥 Installer CrystalDiskInfo (gratuit)</>
+                    )}
+                  </button>
+                )}
+                {crystalDiskInstalled === true && (
+                  <div style={{
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    color: '#10b981',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    display: 'inline-block'
+                  }}>
+                    ✓ CrystalDiskInfo installe - Redemarrez l'app
+                  </div>
+                )}
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
+                  Logiciel open source MIT - Installation silencieuse via winget
                 </div>
               </div>
             )}

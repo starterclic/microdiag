@@ -267,6 +267,29 @@ export async function restoreBackup(backupPath: string): Promise<TweakResult> {
 }
 
 // ============================================
+// CRYSTALDISKINFO INTEGRATION
+// ============================================
+
+export interface CrystalDiskInfoResult {
+  installed: boolean;
+  message: string;
+}
+
+/**
+ * Check if CrystalDiskInfo is installed
+ */
+export async function checkCrystalDiskInfo(): Promise<CrystalDiskInfoResult> {
+  return invoke<CrystalDiskInfoResult>('gm_check_crystaldiskinfo');
+}
+
+/**
+ * Install CrystalDiskInfo via winget
+ */
+export async function installCrystalDiskInfo(): Promise<TweakResult> {
+  return invoke<TweakResult>('gm_install_crystaldiskinfo');
+}
+
+// ============================================
 // HEALTH SCORE CALCULATOR
 // ============================================
 

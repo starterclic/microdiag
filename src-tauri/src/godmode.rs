@@ -364,7 +364,299 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
         }
     }
 
+    // If no SMART data found via native methods, try CrystalDiskInfo
+    let has_smart_data = disks.iter().any(|d| d.temperature_c.is_some() || d.power_on_hours.is_some());
+
+    if !has_smart_data {
+        if let Some(cdi_disks) = get_smart_from_crystaldiskinfo() {
+            // Merge CrystalDiskInfo data with existing disk list
+            for cdi_disk in cdi_disks {
+                // Try to match by model or serial
+                if let Some(disk) = disks.iter_mut().find(|d| {
+                    d.model.to_lowercase().contains(&cdi_disk.model.to_lowercase()) ||
+                    (!cdi_disk.serial.is_empty() && d.serial.contains(&cdi_disk.serial))
+                }) {
+                    disk.temperature_c = cdi_disk.temperature_c;
+                    disk.power_on_hours = cdi_disk.power_on_hours;
+                    disk.power_on_count = cdi_disk.power_on_count;
+                    disk.health_percent = cdi_disk.health_percent;
+                    disk.health_status = cdi_disk.health_status.clone();
+                    if cdi_disk.interface_type == "NVM Express" {
+                        disk.media_type = "NVMe".to_string();
+                    }
+                } else {
+                    // Add as new disk if not found
+                    disks.push(cdi_disk);
+                }
+            }
+        }
+    }
+
     disks
+}
+
+// ============================================
+// CRYSTALDISKINFO INTEGRATION
+// ============================================
+
+#[cfg(windows)]
+fn find_crystaldiskinfo_exe() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let possible_paths = vec![
+        PathBuf::from(r"C:\Program Files\CrystalDiskInfo\DiskInfo64.exe"),
+        PathBuf::from(r"C:\Program Files (x86)\CrystalDiskInfo\DiskInfo32.exe"),
+        PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+        PathBuf::from(format!(r"{}\Programs\CrystalDiskInfo\DiskInfo64.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+    ];
+
+    for path in possible_paths {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn get_smart_from_crystaldiskinfo() -> Option<Vec<SmartDiskInfo>> {
+    use std::process::Command;
+    use std::fs;
+    use std::thread;
+    use std::time::Duration;
+
+    let exe_path = find_crystaldiskinfo_exe()?;
+    let exe_dir = exe_path.parent()?;
+    let output_file = exe_dir.join("DiskInfo.txt");
+
+    // Delete old output file
+    let _ = fs::remove_file(&output_file);
+
+    // Run CrystalDiskInfo with /CopyExit to generate report
+    let result = Command::new(&exe_path)
+        .arg("/CopyExit")
+        .current_dir(exe_dir)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if result.is_err() {
+        return None;
+    }
+
+    // Wait for file to be written
+    thread::sleep(Duration::from_millis(500));
+
+    // Read and parse the output file
+    let content = fs::read_to_string(&output_file).ok()?;
+    parse_crystaldiskinfo_output(&content)
+}
+
+#[cfg(windows)]
+fn parse_crystaldiskinfo_output(content: &str) -> Option<Vec<SmartDiskInfo>> {
+    let mut disks = Vec::new();
+    let mut current_disk: Option<SmartDiskInfo> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        // New disk section starts with "(01)", "(02)", etc.
+        if line.starts_with('(') && line.contains(')') && line.len() > 4 {
+            // Save previous disk
+            if let Some(disk) = current_disk.take() {
+                if !disk.model.is_empty() {
+                    disks.push(disk);
+                }
+            }
+
+            // Start new disk
+            current_disk = Some(SmartDiskInfo {
+                device_id: String::new(),
+                model: String::new(),
+                serial: String::new(),
+                firmware: String::new(),
+                interface_type: String::new(),
+                media_type: "Unknown".to_string(),
+                size_gb: 0.0,
+                health_status: "Inconnu".to_string(),
+                health_percent: 0,
+                temperature_c: None,
+                power_on_hours: None,
+                power_on_count: None,
+                reallocated_sectors: None,
+                pending_sectors: None,
+                uncorrectable_errors: None,
+                read_error_rate: None,
+                seek_error_rate: None,
+                spin_retry_count: None,
+            });
+        }
+
+        if let Some(ref mut disk) = current_disk {
+            // Parse key-value pairs
+            if let Some((key, value)) = line.split_once(':') {
+                let key = key.trim();
+                let value = value.trim();
+
+                match key {
+                    "Model" => disk.model = value.to_string(),
+                    "Firmware" => disk.firmware = value.to_string(),
+                    "Serial Number" => disk.serial = value.trim().to_string(),
+                    "Interface" => {
+                        disk.interface_type = value.to_string();
+                        if value.contains("NVM Express") {
+                            disk.media_type = "NVMe".to_string();
+                        }
+                    },
+                    "Disk Size" => {
+                        // Parse "256,0 GB" or "256.0 GB"
+                        if let Some(size_str) = value.split_whitespace().next() {
+                            let size_str = size_str.replace(',', ".");
+                            disk.size_gb = size_str.parse().unwrap_or(0.0);
+                        }
+                    },
+                    "Health Status" => {
+                        // Parse "Bon (79 %)" or "Good (79 %)"
+                        if value.contains('%') {
+                            if let Some(pct_str) = value.split('(').nth(1) {
+                                if let Some(pct) = pct_str.split_whitespace().next() {
+                                    disk.health_percent = pct.parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                        disk.health_status = if value.starts_with("Bon") || value.starts_with("Good") {
+                            "Bon".to_string()
+                        } else if value.starts_with("Attention") || value.starts_with("Caution") {
+                            "Attention".to_string()
+                        } else if value.starts_with("Mauvais") || value.starts_with("Bad") {
+                            "Critique".to_string()
+                        } else {
+                            "Inconnu".to_string()
+                        };
+                    },
+                    "Temperature" => {
+                        // Parse "41 C" or "41 °C"
+                        if let Some(temp_str) = value.split_whitespace().next() {
+                            disk.temperature_c = temp_str.parse().ok();
+                        }
+                    },
+                    "Power On Hours" => {
+                        // Parse "3687 heures" or "3687 hours"
+                        if let Some(hours_str) = value.split_whitespace().next() {
+                            disk.power_on_hours = hours_str.replace(",", "").replace(".", "").parse().ok();
+                        }
+                    },
+                    "Power On Count" => {
+                        // Parse "2195 fois" or "2195 count"
+                        if let Some(count_str) = value.split_whitespace().next() {
+                            disk.power_on_count = count_str.replace(",", "").replace(".", "").parse().ok();
+                        }
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Don't forget the last disk
+    if let Some(disk) = current_disk {
+        if !disk.model.is_empty() {
+            disks.push(disk);
+        }
+    }
+
+    if disks.is_empty() { None } else { Some(disks) }
+}
+
+#[derive(Serialize, Clone)]
+pub struct CrystalDiskInfoResult {
+    pub installed: bool,
+    pub message: String,
+}
+
+#[cfg(windows)]
+pub async fn check_crystaldiskinfo() -> CrystalDiskInfoResult {
+    if find_crystaldiskinfo_exe().is_some() {
+        CrystalDiskInfoResult {
+            installed: true,
+            message: "CrystalDiskInfo est installe".to_string(),
+        }
+    } else {
+        CrystalDiskInfoResult {
+            installed: false,
+            message: "CrystalDiskInfo n'est pas installe".to_string(),
+        }
+    }
+}
+
+#[cfg(windows)]
+pub async fn install_crystaldiskinfo() -> TweakResult {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    // Check if already installed
+    if find_crystaldiskinfo_exe().is_some() {
+        return TweakResult {
+            success: true,
+            message: "CrystalDiskInfo est deja installe".to_string(),
+            backup_path: None,
+        };
+    }
+
+    // Install via winget
+    let result = Command::new("winget")
+        .args([
+            "install",
+            "--id", "CrystalDewWorld.CrystalDiskInfo",
+            "-e",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            thread::sleep(Duration::from_secs(2));
+            TweakResult {
+                success: true,
+                message: "CrystalDiskInfo installe avec succes. Redemarrez l'app pour voir les donnees SMART.".to_string(),
+                backup_path: None,
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            TweakResult {
+                success: false,
+                message: format!("Erreur: {} {}", stdout, stderr),
+                backup_path: None,
+            }
+        }
+        Err(e) => TweakResult {
+            success: false,
+            message: format!("Winget non disponible: {}", e),
+            backup_path: None,
+        },
+    }
+}
+
+#[cfg(not(windows))]
+pub async fn check_crystaldiskinfo() -> CrystalDiskInfoResult {
+    CrystalDiskInfoResult {
+        installed: false,
+        message: "CrystalDiskInfo uniquement disponible sur Windows".to_string(),
+    }
+}
+
+#[cfg(not(windows))]
+pub async fn install_crystaldiskinfo() -> TweakResult {
+    TweakResult {
+        success: false,
+        message: "CrystalDiskInfo uniquement disponible sur Windows".to_string(),
+        backup_path: None,
+    }
 }
 
 #[derive(Default)]

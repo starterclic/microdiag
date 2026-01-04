@@ -450,6 +450,16 @@ async fn gm_install_rustdesk() -> godmode::RustDeskResult {
     godmode::install_rustdesk().await
 }
 
+#[tauri::command]
+async fn gm_check_crystaldiskinfo() -> godmode::CrystalDiskInfoResult {
+    godmode::check_crystaldiskinfo().await
+}
+
+#[tauri::command]
+async fn gm_install_crystaldiskinfo() -> godmode::TweakResult {
+    godmode::install_crystaldiskinfo().await
+}
+
 // ============================================
 // PREMIUM DIAGNOSTICS COMMANDS
 // ============================================
@@ -837,6 +847,8 @@ fn main() {
             gm_list_backups,
             gm_restore_backup,
             gm_install_rustdesk,
+            gm_check_crystaldiskinfo,
+            gm_install_crystaldiskinfo,
             // Premium Diagnostics commands
             run_premium_diagnostic,
             get_temperatures,

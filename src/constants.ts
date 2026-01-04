@@ -4,7 +4,7 @@
 
 export const SUPABASE_URL = 'https://api.microdiag.cybtek.fr';
 export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY2OTQ3Nzk5LCJleHAiOjIwODIzMDc3OTl9.WlRjQRwCpfgNaGHqiOzsAgwtxufS59sOIbwSdm2sJyc';
-export const APP_VERSION = '3.7.0';
+export const APP_VERSION = '3.8.0';
 
 // Messages de vulgarisation par catégorie (rassurants)
 export const LOADER_MESSAGES: Record<string, string[]> = {
