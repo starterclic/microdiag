@@ -659,6 +659,315 @@ pub async fn install_crystaldiskinfo() -> TweakResult {
     }
 }
 
+// ============================================
+// LIBREHARDWAREMONITOR INTEGRATION
+// ============================================
+
+#[derive(Serialize, Clone, Debug)]
+pub struct TemperatureSensor {
+    pub name: String,
+    pub sensor_type: String,  // CPU, GPU, Disk, Motherboard
+    pub value: f32,
+    pub max: Option<f32>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct HardwareTemperatures {
+    pub available: bool,
+    pub lhm_installed: bool,
+    pub sensors: Vec<TemperatureSensor>,
+    pub cpu_temp: Option<f32>,
+    pub gpu_temp: Option<f32>,
+    pub disk_temps: Vec<(String, f32)>,
+}
+
+#[cfg(windows)]
+fn find_librehardwaremonitor_exe() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let possible_paths = vec![
+        PathBuf::from(r"C:\Program Files\LibreHardwareMonitor\LibreHardwareMonitor.exe"),
+        PathBuf::from(r"C:\Program Files (x86)\LibreHardwareMonitor\LibreHardwareMonitor.exe"),
+        PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+        PathBuf::from(format!(r"{}\Programs\LibreHardwareMonitor\LibreHardwareMonitor.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+    ];
+
+    for path in possible_paths {
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+pub fn get_all_temperatures() -> HardwareTemperatures {
+    let lhm_installed = find_librehardwaremonitor_exe().is_some();
+
+    // Try to read from LibreHardwareMonitor WMI namespace
+    if let Some(temps) = get_temperatures_from_lhm_wmi() {
+        return temps;
+    }
+
+    // Fallback: Try native WMI thermal zones
+    if let Some(temps) = get_temperatures_native_wmi() {
+        return HardwareTemperatures {
+            available: true,
+            lhm_installed,
+            sensors: temps.sensors,
+            cpu_temp: temps.cpu_temp,
+            gpu_temp: temps.gpu_temp,
+            disk_temps: temps.disk_temps,
+        };
+    }
+
+    HardwareTemperatures {
+        available: false,
+        lhm_installed,
+        sensors: Vec::new(),
+        cpu_temp: None,
+        gpu_temp: None,
+        disk_temps: Vec::new(),
+    }
+}
+
+#[cfg(windows)]
+fn get_temperatures_from_lhm_wmi() -> Option<HardwareTemperatures> {
+    use wmi::{COMLibrary, WMIConnection};
+
+    let com_con = COMLibrary::new().ok()?;
+    let wmi_con = WMIConnection::with_namespace_path("root\\LibreHardwareMonitor", com_con).ok()?;
+
+    let results: Vec<std::collections::HashMap<String, wmi::Variant>> = wmi_con
+        .raw_query("SELECT Name, SensorType, Value, Max, Parent FROM Sensor WHERE SensorType='Temperature'")
+        .ok()?;
+
+    if results.is_empty() {
+        return None;
+    }
+
+    let mut sensors = Vec::new();
+    let mut cpu_temp: Option<f32> = None;
+    let mut gpu_temp: Option<f32> = None;
+    let mut disk_temps: Vec<(String, f32)> = Vec::new();
+
+    for sensor in results {
+        let name = match sensor.get("Name") {
+            Some(wmi::Variant::String(s)) => s.clone(),
+            _ => continue,
+        };
+        let value = match sensor.get("Value") {
+            Some(wmi::Variant::R4(v)) => *v,
+            Some(wmi::Variant::R8(v)) => *v as f32,
+            _ => continue,
+        };
+        let max = match sensor.get("Max") {
+            Some(wmi::Variant::R4(v)) => Some(*v),
+            Some(wmi::Variant::R8(v)) => Some(*v as f32),
+            _ => None,
+        };
+        let parent = match sensor.get("Parent") {
+            Some(wmi::Variant::String(s)) => s.to_lowercase(),
+            _ => String::new(),
+        };
+
+        // Determine sensor type
+        let sensor_type = if parent.contains("cpu") || name.to_lowercase().contains("cpu") || name.contains("Core") {
+            if cpu_temp.is_none() || name.contains("Package") || name.contains("CPU") {
+                cpu_temp = Some(value);
+            }
+            "CPU"
+        } else if parent.contains("gpu") || name.to_lowercase().contains("gpu") {
+            if gpu_temp.is_none() {
+                gpu_temp = Some(value);
+            }
+            "GPU"
+        } else if parent.contains("nvme") || parent.contains("hdd") || parent.contains("ssd") || name.to_lowercase().contains("disk") {
+            disk_temps.push((name.clone(), value));
+            "Disk"
+        } else {
+            "Motherboard"
+        };
+
+        sensors.push(TemperatureSensor {
+            name,
+            sensor_type: sensor_type.to_string(),
+            value,
+            max,
+        });
+    }
+
+    Some(HardwareTemperatures {
+        available: true,
+        lhm_installed: true,
+        sensors,
+        cpu_temp,
+        gpu_temp,
+        disk_temps,
+    })
+}
+
+#[cfg(windows)]
+fn get_temperatures_native_wmi() -> Option<HardwareTemperatures> {
+    use std::process::Command;
+
+    // Use PowerShell to get thermal zone temperatures
+    let ps_script = r#"
+$result = @{ sensors = @(); cpu_temp = $null }
+try {
+    $temps = Get-CimInstance -Namespace root\wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue
+    foreach ($t in $temps) {
+        $celsius = ($t.CurrentTemperature - 2732) / 10
+        if ($celsius -gt 0 -and $celsius -lt 150) {
+            $result.sensors += @{
+                name = $t.InstanceName
+                value = [math]::Round($celsius, 1)
+                type = "CPU"
+            }
+            if ($null -eq $result.cpu_temp) {
+                $result.cpu_temp = [math]::Round($celsius, 1)
+            }
+        }
+    }
+} catch {}
+$result | ConvertTo-Json -Compress -Depth 3
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+
+    let json_str = String::from_utf8(output.stdout).ok()?;
+    let data: serde_json::Value = serde_json::from_str(json_str.trim()).ok()?;
+
+    let sensors_arr = data.get("sensors")?.as_array()?;
+    if sensors_arr.is_empty() {
+        return None;
+    }
+
+    let mut sensors = Vec::new();
+    for s in sensors_arr {
+        let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+        let value = s.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let sensor_type = s.get("type").and_then(|v| v.as_str()).unwrap_or("CPU").to_string();
+        sensors.push(TemperatureSensor {
+            name,
+            sensor_type,
+            value,
+            max: None,
+        });
+    }
+
+    let cpu_temp = data.get("cpu_temp").and_then(|v| v.as_f64()).map(|v| v as f32);
+
+    Some(HardwareTemperatures {
+        available: true,
+        lhm_installed: find_librehardwaremonitor_exe().is_some(),
+        sensors,
+        cpu_temp,
+        gpu_temp: None,
+        disk_temps: Vec::new(),
+    })
+}
+
+#[cfg(windows)]
+pub async fn check_librehardwaremonitor() -> CrystalDiskInfoResult {
+    if find_librehardwaremonitor_exe().is_some() {
+        CrystalDiskInfoResult {
+            installed: true,
+            message: "LibreHardwareMonitor est installe".to_string(),
+        }
+    } else {
+        CrystalDiskInfoResult {
+            installed: false,
+            message: "LibreHardwareMonitor n'est pas installe".to_string(),
+        }
+    }
+}
+
+#[cfg(windows)]
+pub async fn install_librehardwaremonitor() -> TweakResult {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    if find_librehardwaremonitor_exe().is_some() {
+        return TweakResult {
+            success: true,
+            message: "LibreHardwareMonitor est deja installe".to_string(),
+            backup_path: None,
+        };
+    }
+
+    let result = Command::new("winget")
+        .args([
+            "install",
+            "--id", "LibreHardwareMonitor.LibreHardwareMonitor",
+            "-e",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            thread::sleep(Duration::from_secs(2));
+            TweakResult {
+                success: true,
+                message: "LibreHardwareMonitor installe. Lancez-le une fois pour activer les capteurs.".to_string(),
+                backup_path: None,
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            TweakResult {
+                success: false,
+                message: format!("Erreur: {} {}", stdout, stderr),
+                backup_path: None,
+            }
+        }
+        Err(e) => TweakResult {
+            success: false,
+            message: format!("Winget non disponible: {}", e),
+            backup_path: None,
+        },
+    }
+}
+
+#[cfg(not(windows))]
+pub fn get_all_temperatures() -> HardwareTemperatures {
+    HardwareTemperatures {
+        available: false,
+        lhm_installed: false,
+        sensors: Vec::new(),
+        cpu_temp: None,
+        gpu_temp: None,
+        disk_temps: Vec::new(),
+    }
+}
+
+#[cfg(not(windows))]
+pub async fn check_librehardwaremonitor() -> CrystalDiskInfoResult {
+    CrystalDiskInfoResult {
+        installed: false,
+        message: "LibreHardwareMonitor uniquement disponible sur Windows".to_string(),
+    }
+}
+
+#[cfg(not(windows))]
+pub async fn install_librehardwaremonitor() -> TweakResult {
+    TweakResult {
+        success: false,
+        message: "LibreHardwareMonitor uniquement disponible sur Windows".to_string(),
+        backup_path: None,
+    }
+}
+
 #[derive(Default)]
 struct SmartAttributes {
     temperature: Option<u8>,

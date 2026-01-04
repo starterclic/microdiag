@@ -460,6 +460,21 @@ async fn gm_install_crystaldiskinfo() -> godmode::TweakResult {
     godmode::install_crystaldiskinfo().await
 }
 
+#[tauri::command]
+async fn gm_check_librehardwaremonitor() -> godmode::CrystalDiskInfoResult {
+    godmode::check_librehardwaremonitor().await
+}
+
+#[tauri::command]
+async fn gm_install_librehardwaremonitor() -> godmode::TweakResult {
+    godmode::install_librehardwaremonitor().await
+}
+
+#[tauri::command]
+fn gm_get_all_temperatures() -> godmode::HardwareTemperatures {
+    godmode::get_all_temperatures()
+}
+
 // ============================================
 // PREMIUM DIAGNOSTICS COMMANDS
 // ============================================
@@ -849,6 +864,9 @@ fn main() {
             gm_install_rustdesk,
             gm_check_crystaldiskinfo,
             gm_install_crystaldiskinfo,
+            gm_check_librehardwaremonitor,
+            gm_install_librehardwaremonitor,
+            gm_get_all_temperatures,
             // Premium Diagnostics commands
             run_premium_diagnostic,
             get_temperatures,

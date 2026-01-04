@@ -290,6 +290,47 @@ export async function installCrystalDiskInfo(): Promise<TweakResult> {
 }
 
 // ============================================
+// LIBREHARDWAREMONITOR INTEGRATION
+// ============================================
+
+export interface TemperatureSensor {
+  name: string;
+  sensor_type: string;  // CPU, GPU, Disk, Motherboard
+  value: number;
+  max: number | null;
+}
+
+export interface HardwareTemperatures {
+  available: boolean;
+  lhm_installed: boolean;
+  sensors: TemperatureSensor[];
+  cpu_temp: number | null;
+  gpu_temp: number | null;
+  disk_temps: [string, number][];
+}
+
+/**
+ * Check if LibreHardwareMonitor is installed
+ */
+export async function checkLibreHardwareMonitor(): Promise<CrystalDiskInfoResult> {
+  return invoke<CrystalDiskInfoResult>('gm_check_librehardwaremonitor');
+}
+
+/**
+ * Install LibreHardwareMonitor via winget
+ */
+export async function installLibreHardwareMonitor(): Promise<TweakResult> {
+  return invoke<TweakResult>('gm_install_librehardwaremonitor');
+}
+
+/**
+ * Get all hardware temperatures
+ */
+export async function getAllTemperatures(): Promise<HardwareTemperatures> {
+  return invoke<HardwareTemperatures>('gm_get_all_temperatures');
+}
+
+// ============================================
 // HEALTH SCORE CALCULATOR
 // ============================================
 

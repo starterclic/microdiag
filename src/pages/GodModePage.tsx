@@ -12,6 +12,7 @@ import type {
   DeepHealth,
   OutdatedApp,
   RegBackup,
+  HardwareTemperatures,
 } from '../services/godmode';
 
 interface GodModePageProps {
@@ -40,6 +41,9 @@ export function GodModePage({ metrics }: GodModePageProps) {
   const [tweakStates, setTweakStates] = useState<Record<string, boolean>>({});
   const [crystalDiskInstalled, setCrystalDiskInstalled] = useState<boolean | null>(null);
   const [installingCrystalDisk, setInstallingCrystalDisk] = useState(false);
+  const [temperatures, setTemperatures] = useState<HardwareTemperatures | null>(null);
+  const [lhmInstalled, setLhmInstalled] = useState<boolean | null>(null);
+  const [installingLhm, setInstallingLhm] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -66,6 +70,12 @@ export function GodModePage({ metrics }: GodModePageProps) {
           const cdiStatus = await godmode.checkCrystalDiskInfo();
           setCrystalDiskInstalled(cdiStatus.installed);
         }
+
+        // Load temperatures
+        const temps = await godmode.getAllTemperatures();
+        console.log('🌡️ Temperatures:', temps);
+        setTemperatures(temps);
+        setLhmInstalled(temps.lhm_installed);
       } catch (e) {
         console.error('Error loading Mode Expert data:', e);
       } finally {
@@ -219,6 +229,24 @@ export function GodModePage({ metrics }: GodModePageProps) {
       toast.error('Erreur: ' + e);
     } finally {
       setInstallingCrystalDisk(false);
+    }
+  };
+
+  const handleInstallLibreHardwareMonitor = async () => {
+    setInstallingLhm(true);
+    toast.info('Installation de LibreHardwareMonitor via winget...');
+    try {
+      const result = await godmode.installLibreHardwareMonitor();
+      if (result.success) {
+        toast.success(result.message);
+        setLhmInstalled(true);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (e) {
+      toast.error('Erreur: ' + e);
+    } finally {
+      setInstallingLhm(false);
     }
   };
 
@@ -419,6 +447,75 @@ export function GodModePage({ metrics }: GodModePageProps) {
                 </div>
               </div>
             )}
+
+            {/* Hardware Temperatures */}
+            <div className="dashboard-card" style={{ marginTop: '1rem', padding: '1.25rem', background: 'rgba(30, 30, 50, 0.6)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ fontSize: '0.875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Temperatures</h3>
+                <span style={{ fontSize: '12px', background: 'rgba(239, 68, 68, 0.1)', padding: '4px 10px', borderRadius: '12px', color: '#ef4444' }}>🌡️ Temps reel</span>
+              </div>
+
+              {temperatures?.available && temperatures.sensors.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                  {temperatures.cpu_temp !== null && (
+                    <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>CPU</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: temperatures.cpu_temp > 80 ? '#ef4444' : temperatures.cpu_temp > 60 ? '#f59e0b' : '#10b981' }}>
+                        {temperatures.cpu_temp.toFixed(0)}°C
+                      </div>
+                    </div>
+                  )}
+                  {temperatures.gpu_temp !== null && (
+                    <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>GPU</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: temperatures.gpu_temp > 85 ? '#ef4444' : temperatures.gpu_temp > 70 ? '#f59e0b' : '#10b981' }}>
+                        {temperatures.gpu_temp.toFixed(0)}°C
+                      </div>
+                    </div>
+                  )}
+                  {temperatures.disk_temps.map(([name, temp], i) => (
+                    <div key={i} style={{ background: 'rgba(139, 92, 246, 0.1)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: temp > 60 ? '#ef4444' : temp > 45 ? '#f59e0b' : '#10b981' }}>
+                        {temp.toFixed(0)}°C
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '1rem' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🌡️</div>
+                  <div style={{ fontWeight: 500, marginBottom: '0.5rem' }}>
+                    {lhmInstalled ? 'Lancez LibreHardwareMonitor pour activer les capteurs' : 'Temperatures non disponibles'}
+                  </div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                    LibreHardwareMonitor lit les temperatures CPU, GPU et disques en temps reel
+                  </div>
+                  {lhmInstalled === false && (
+                    <button
+                      onClick={handleInstallLibreHardwareMonitor}
+                      disabled={installingLhm}
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
+                        color: 'white',
+                        border: 'none',
+                        padding: '0.75rem 1.5rem',
+                        borderRadius: '8px',
+                        cursor: installingLhm ? 'wait' : 'pointer',
+                        fontWeight: 600,
+                        fontSize: '0.9rem',
+                        opacity: installingLhm ? 0.7 : 1,
+                      }}
+                    >
+                      {installingLhm ? '⏳ Installation...' : '📥 Installer LibreHardwareMonitor (gratuit)'}
+                    </button>
+                  )}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
+                    Open source MPL 2.0 - Installation via winget
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* SMART Disks Details - CrystalDisk Style */}
             {deepHealth?.smart_disks && deepHealth.smart_disks.length > 0 ? (
