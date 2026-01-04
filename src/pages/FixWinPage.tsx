@@ -1,7 +1,6 @@
 // ============================================
 // MICRODIAG SENTINEL - FixWin Page
-// Windows System Repair Tools with Pro UX
-// Using emojis for consistency with app style
+// Ultra Premium Design with Lucide Icons
 // ============================================
 
 import { useState, useEffect, useRef } from 'react';
@@ -19,20 +18,51 @@ import {
   getLineColor
 } from '../services/fixwin';
 
-// Emoji icon mapping
-const CATEGORY_ICONS: Record<string, string> = {
-  wifi: '📶',
-  settings: '⚙️',
-  folder: '📁',
-  download: '📥',
-  trash: '🗑️',
-  zap: '⚡',
-  network: '📶',
-  system: '⚙️',
-  explorer: '📁',
-  windows_update: '📥',
-  cleanup: '🗑️',
-  services: '⚡'
+// Lucide Icons
+import {
+  Wifi,
+  Settings,
+  FolderOpen,
+  Download,
+  Trash2,
+  Zap,
+  Shield,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Terminal,
+  Play,
+  ChevronRight,
+  ChevronDown,
+  RefreshCw,
+  HelpCircle,
+  Save,
+  Loader2,
+  Sparkles,
+  Wrench,
+  Activity,
+  MonitorSpeaker,
+  Printer,
+  Search,
+  type LucideIcon
+} from 'lucide-react';
+
+// Icon mapping for categories
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  wifi: Wifi,
+  settings: Settings,
+  folder: FolderOpen,
+  download: Download,
+  trash: Trash2,
+  zap: Zap,
+  network: Wifi,
+  system: Settings,
+  explorer: FolderOpen,
+  windows_update: Download,
+  cleanup: Trash2,
+  services: Zap
 };
 
 interface Props {
@@ -104,7 +134,6 @@ export default function FixWinPage({ onRequestSupport }: Props) {
   const loadCategories = async () => {
     const cats = await getFixCategories();
     setCategories(cats);
-    // Expand first category by default
     if (cats.length > 0) {
       setExpandedCategories(new Set([cats[0].id]));
     }
@@ -167,10 +196,10 @@ export default function FixWinPage({ onRequestSupport }: Props) {
     }]);
 
     try {
-      const result = await createRestorePoint();
+      const restoreResult = await createRestorePoint();
       setTerminalOutput(prev => [...prev, {
-        line: result.success ? '[OK] Point de restauration cree' : `[ERREUR] ${result.message}`,
-        type: result.success ? 'success' : 'error'
+        line: restoreResult.success ? '[OK] Point de restauration cree' : `[ERREUR] ${restoreResult.message}`,
+        type: restoreResult.success ? 'success' : 'error'
       }]);
     } catch (error) {
       setTerminalOutput(prev => [...prev, {
@@ -192,16 +221,18 @@ export default function FixWinPage({ onRequestSupport }: Props) {
   };
 
   const getCategoryIcon = (iconName: string) => {
-    return CATEGORY_ICONS[iconName] || CATEGORY_ICONS[iconName.toLowerCase()] || '🔧';
+    const Icon = CATEGORY_ICONS[iconName] || CATEGORY_ICONS[iconName?.toLowerCase()] || Wrench;
+    return <Icon size={18} strokeWidth={2} />;
   };
 
   return (
     <div className="fw-page">
-      {/* Header */}
+      {/* Premium Header */}
       <div className="fw-header">
         <div className="fw-header-content">
           <div className="fw-header-icon">
-            🛡️
+            <ShieldCheck size={28} strokeWidth={1.5} />
+            <Sparkles size={14} className="fw-sparkle" />
           </div>
           <div className="fw-header-text">
             <h1>Outils de Reparation</h1>
@@ -213,7 +244,12 @@ export default function FixWinPage({ onRequestSupport }: Props) {
           onClick={handleCreateRestorePoint}
           disabled={creatingRestorePoint || isRunning}
         >
-          💾 {creatingRestorePoint ? 'Creation...' : 'Creer un point de restauration'}
+          {creatingRestorePoint ? (
+            <Loader2 size={18} className="fw-spin" />
+          ) : (
+            <Save size={18} />
+          )}
+          <span>{creatingRestorePoint ? 'Creation...' : 'Point de restauration'}</span>
         </button>
       </div>
 
@@ -221,6 +257,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
         {/* Sidebar - Categories */}
         <div className="fw-sidebar">
           <div className="fw-sidebar-header">
+            <Wrench size={16} />
             <h3>Categories</h3>
           </div>
           <div className="fw-categories">
@@ -233,7 +270,11 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                   <span className="fw-category-icon">{getCategoryIcon(category.icon || category.id)}</span>
                   <span className="fw-category-name">{category.name}</span>
                   <span className="fw-category-count">{category.fixes.length}</span>
-                  <span className="fw-chevron">{expandedCategories.has(category.id) ? '▼' : '▶'}</span>
+                  {expandedCategories.has(category.id) ? (
+                    <ChevronDown size={14} className="fw-chevron" />
+                  ) : (
+                    <ChevronRight size={14} className="fw-chevron" />
+                  )}
                 </button>
 
                 {expandedCategories.has(category.id) && (
@@ -264,28 +305,32 @@ export default function FixWinPage({ onRequestSupport }: Props) {
         <div className="fw-content">
           {selectedFix ? (
             <>
-              {/* Fix Details */}
+              {/* Fix Details Card */}
               <div className="fw-details">
                 <div className="fw-details-header">
                   <h2>{selectedFix.name}</h2>
                   <div className="fw-details-meta">
                     <span
-                      className="fw-risk-badge"
+                      className="fw-badge fw-risk-badge"
                       style={getRiskStyle(selectedFix.risk_level)}
                     >
+                      <Activity size={12} />
                       {RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.label}
                     </span>
-                    <span className="fw-time-badge">
-                      🕐 {selectedFix.estimated_time}
+                    <span className="fw-badge fw-time-badge">
+                      <Clock size={12} />
+                      {selectedFix.estimated_time}
                     </span>
                     {selectedFix.requires_reboot && (
-                      <span className="fw-reboot-badge">
-                        🔄 Redemarrage requis
+                      <span className="fw-badge fw-reboot-badge">
+                        <RefreshCw size={12} />
+                        Redemarrage
                       </span>
                     )}
                     {selectedFix.requires_admin && (
-                      <span className="fw-admin-badge">
-                        🛡️ Admin requis
+                      <span className="fw-badge fw-admin-badge">
+                        <Shield size={12} />
+                        Admin
                       </span>
                     )}
                   </div>
@@ -296,7 +341,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 {/* Risk Warning */}
                 {selectedFix.risk_level !== 'low' && (
                   <div className="fw-warning" style={getRiskStyle(selectedFix.risk_level)}>
-                    <span className="fw-warning-icon">⚠️</span>
+                    <AlertTriangle size={20} />
                     <div>
                       <strong>{RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.label}</strong>
                       <p>{RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.description}</p>
@@ -304,7 +349,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                   </div>
                 )}
 
-                {/* Action Button */}
+                {/* Action Buttons */}
                 <div className="fw-actions">
                   <button
                     className="fw-run-btn"
@@ -312,15 +357,22 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                     disabled={isRunning}
                   >
                     {isRunning ? (
-                      <>🔄 Execution en cours...</>
+                      <>
+                        <Loader2 size={18} className="fw-spin" />
+                        <span>Execution en cours...</span>
+                      </>
                     ) : (
-                      <>▶️ Executer</>
+                      <>
+                        <Play size={18} />
+                        <span>Executer</span>
+                      </>
                     )}
                   </button>
 
                   {onRequestSupport && (
                     <button className="fw-help-btn" onClick={onRequestSupport}>
-                      ❓ Demander de l'aide
+                      <HelpCircle size={18} />
+                      <span>Demander de l'aide</span>
                     </button>
                   )}
                 </div>
@@ -332,7 +384,9 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                       <div
                         className="fw-progress-fill"
                         style={{ width: `${progress}%` }}
-                      />
+                      >
+                        <div className="fw-progress-shimmer" />
+                      </div>
                     </div>
                     <span className="fw-progress-text">{progress}%</span>
                   </div>
@@ -341,13 +395,18 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 {/* Result Banner */}
                 {result && (
                   <div className={`fw-result ${result.success ? 'success' : 'error'}`}>
-                    <span className="fw-result-icon">{result.success ? '✅' : '❌'}</span>
+                    {result.success ? (
+                      <CheckCircle2 size={24} />
+                    ) : (
+                      <XCircle size={24} />
+                    )}
                     <div>
                       <strong>{result.success ? 'Operation reussie !' : 'Erreur'}</strong>
                       <p>{result.message}</p>
                       {result.requires_reboot && (
                         <p className="fw-reboot-notice">
-                          🔄 Un redemarrage est necessaire pour appliquer les changements
+                          <RefreshCw size={14} />
+                          Un redemarrage est necessaire pour appliquer les changements
                         </p>
                       )}
                     </div>
@@ -359,7 +418,8 @@ export default function FixWinPage({ onRequestSupport }: Props) {
               {terminalOutput.length > 0 && (
                 <div className="fw-terminal">
                   <div className="fw-terminal-header">
-                    <span>💻 Sortie</span>
+                    <Terminal size={14} />
+                    <span>Sortie</span>
                     <div className="fw-terminal-dots">
                       <span className="dot red" />
                       <span className="dot yellow" />
@@ -370,7 +430,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                     {terminalOutput.map((output, i) => (
                       <div
                         key={i}
-                        className="fw-terminal-line"
+                        className={`fw-terminal-line ${output.type}`}
                         style={{ color: getLineColor(output.type) }}
                       >
                         {output.line}
@@ -384,7 +444,9 @@ export default function FixWinPage({ onRequestSupport }: Props) {
           ) : (
             /* Empty State */
             <div className="fw-empty">
-              <span className="fw-empty-icon">⚙️</span>
+              <div className="fw-empty-icon">
+                <Wrench size={48} strokeWidth={1} />
+              </div>
               <h3>Selectionnez un outil</h3>
               <p>Choisissez une categorie et un outil dans le panneau de gauche pour commencer</p>
             </div>
@@ -397,7 +459,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
         <div className="fw-modal-overlay" onClick={() => setShowConfirmModal(false)}>
           <div className="fw-modal" onClick={e => e.stopPropagation()}>
             <div className="fw-modal-header">
-              <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+              <AlertTriangle size={24} style={{ color: RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.color }} />
               <h3>Confirmer l'operation</h3>
             </div>
 
@@ -409,24 +471,26 @@ export default function FixWinPage({ onRequestSupport }: Props) {
 
               <div className="fw-modal-info">
                 <div className="fw-modal-info-row">
-                  <span>Niveau de risque :</span>
-                  <span style={getRiskStyle(selectedFix.risk_level)}>
+                  <span>Niveau de risque</span>
+                  <span className="fw-badge" style={getRiskStyle(selectedFix.risk_level)}>
                     {RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.label}
                   </span>
                 </div>
                 <div className="fw-modal-info-row">
-                  <span>Duree estimee :</span>
+                  <span>Duree estimee</span>
                   <span>{selectedFix.estimated_time}</span>
                 </div>
                 {selectedFix.requires_reboot && (
                   <div className="fw-modal-info-row warning">
-                    <span>🔄 Un redemarrage sera necessaire</span>
+                    <RefreshCw size={14} />
+                    <span>Un redemarrage sera necessaire</span>
                   </div>
                 )}
               </div>
 
               <p className="fw-modal-warning">
-                Nous vous recommandons de creer un point de restauration avant de continuer.
+                <Shield size={14} />
+                Nous recommandons de creer un point de restauration avant de continuer.
               </p>
             </div>
 
@@ -435,7 +499,8 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 Annuler
               </button>
               <button className="fw-modal-confirm" onClick={confirmAndRun}>
-                ▶️ Executer
+                <Play size={16} />
+                Executer
               </button>
             </div>
           </div>
