@@ -968,6 +968,148 @@ pub async fn install_librehardwaremonitor() -> TweakResult {
     }
 }
 
+// ============================================
+// AUTO-SETUP DIAGNOSTIC TOOLS (Silent Install)
+// ============================================
+
+#[derive(Serialize, Clone)]
+pub struct DiagnosticToolsStatus {
+    pub crystaldiskinfo_installed: bool,
+    pub crystaldiskinfo_installing: bool,
+    pub librehardwaremonitor_installed: bool,
+    pub librehardwaremonitor_installing: bool,
+    pub message: String,
+}
+
+#[cfg(windows)]
+pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    let mut status = DiagnosticToolsStatus {
+        crystaldiskinfo_installed: find_crystaldiskinfo_exe().is_some(),
+        crystaldiskinfo_installing: false,
+        librehardwaremonitor_installed: find_librehardwaremonitor_exe().is_some(),
+        librehardwaremonitor_installing: false,
+        message: String::new(),
+    };
+
+    let mut messages = Vec::new();
+
+    // Auto-install CrystalDiskInfo if not present
+    if !status.crystaldiskinfo_installed {
+        status.crystaldiskinfo_installing = true;
+        let result = Command::new("winget")
+            .args([
+                "install",
+                "--id", "CrystalDewWorld.CrystalDiskInfo",
+                "-e",
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(output) = result {
+            if output.status.success() {
+                thread::sleep(Duration::from_secs(2));
+                status.crystaldiskinfo_installed = find_crystaldiskinfo_exe().is_some();
+                if status.crystaldiskinfo_installed {
+                    messages.push("CrystalDiskInfo installe");
+                }
+            }
+        }
+        status.crystaldiskinfo_installing = false;
+    }
+
+    // Auto-install LibreHardwareMonitor if not present
+    if !status.librehardwaremonitor_installed {
+        status.librehardwaremonitor_installing = true;
+        let result = Command::new("winget")
+            .args([
+                "install",
+                "--id", "LibreHardwareMonitor.LibreHardwareMonitor",
+                "-e",
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(output) = result {
+            if output.status.success() {
+                thread::sleep(Duration::from_secs(2));
+                status.librehardwaremonitor_installed = find_librehardwaremonitor_exe().is_some();
+                if status.librehardwaremonitor_installed {
+                    messages.push("LibreHardwareMonitor installe");
+                }
+            }
+        }
+        status.librehardwaremonitor_installing = false;
+    }
+
+    // Run CrystalDiskInfo to generate report
+    if status.crystaldiskinfo_installed {
+        if let Some(exe_path) = find_crystaldiskinfo_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let _ = Command::new(&exe_path)
+                    .arg("/CopyExit")
+                    .current_dir(exe_dir)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+
+    // Launch LibreHardwareMonitor to activate WMI sensors
+    if status.librehardwaremonitor_installed {
+        if let Some(exe_path) = find_librehardwaremonitor_exe() {
+            // Check if already running
+            let tasklist = Command::new("tasklist")
+                .args(["/FI", "IMAGENAME eq LibreHardwareMonitor.exe"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            let already_running = tasklist
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("LibreHardwareMonitor"))
+                .unwrap_or(false);
+
+            if !already_running {
+                // Launch minimized to system tray
+                let _ = Command::new(&exe_path)
+                    .arg("--minimized")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn();
+                thread::sleep(Duration::from_secs(2));
+                messages.push("LibreHardwareMonitor lance");
+            }
+        }
+    }
+
+    status.message = if messages.is_empty() {
+        "Outils de diagnostic prets".to_string()
+    } else {
+        messages.join(", ")
+    };
+
+    status
+}
+
+#[cfg(not(windows))]
+pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
+    DiagnosticToolsStatus {
+        crystaldiskinfo_installed: false,
+        crystaldiskinfo_installing: false,
+        librehardwaremonitor_installed: false,
+        librehardwaremonitor_installing: false,
+        message: "Disponible uniquement sur Windows".to_string(),
+    }
+}
+
 #[derive(Default)]
 struct SmartAttributes {
     temperature: Option<u8>,

@@ -331,6 +331,26 @@ export async function getAllTemperatures(): Promise<HardwareTemperatures> {
 }
 
 // ============================================
+// AUTO-SETUP DIAGNOSTIC TOOLS
+// ============================================
+
+export interface DiagnosticToolsStatus {
+  crystaldiskinfo_installed: boolean;
+  crystaldiskinfo_installing: boolean;
+  librehardwaremonitor_installed: boolean;
+  librehardwaremonitor_installing: boolean;
+  message: string;
+}
+
+/**
+ * Auto-install and setup diagnostic tools (CrystalDiskInfo + LibreHardwareMonitor)
+ * Silently installs via winget if not present, then runs them
+ */
+export async function autoSetupDiagnosticTools(): Promise<DiagnosticToolsStatus> {
+  return invoke<DiagnosticToolsStatus>('gm_auto_setup_diagnostic_tools');
+}
+
+// ============================================
 // HEALTH SCORE CALCULATOR
 // ============================================
 

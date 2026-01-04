@@ -475,6 +475,11 @@ fn gm_get_all_temperatures() -> godmode::HardwareTemperatures {
     godmode::get_all_temperatures()
 }
 
+#[tauri::command]
+async fn gm_auto_setup_diagnostic_tools() -> godmode::DiagnosticToolsStatus {
+    godmode::auto_setup_diagnostic_tools().await
+}
+
 // ============================================
 // PREMIUM DIAGNOSTICS COMMANDS
 // ============================================
@@ -867,6 +872,7 @@ fn main() {
             gm_check_librehardwaremonitor,
             gm_install_librehardwaremonitor,
             gm_get_all_temperatures,
+            gm_auto_setup_diagnostic_tools,
             // Premium Diagnostics commands
             run_premium_diagnostic,
             get_temperatures,

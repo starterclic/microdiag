@@ -44,11 +44,30 @@ export function GodModePage({ metrics }: GodModePageProps) {
   const [temperatures, setTemperatures] = useState<HardwareTemperatures | null>(null);
   const [lhmInstalled, setLhmInstalled] = useState<boolean | null>(null);
   const [installingLhm, setInstallingLhm] = useState(false);
+  const [settingUpTools, setSettingUpTools] = useState(false);
+  const [setupMessage, setSetupMessage] = useState('');
 
-  // Load initial data
+  // Load initial data with auto-setup of diagnostic tools
   useEffect(() => {
     const loadData = async () => {
       try {
+        // Step 1: Auto-setup diagnostic tools (silent install if needed)
+        setSettingUpTools(true);
+        setSetupMessage('Configuration des outils de diagnostic...');
+        console.log('🔧 Auto-setup diagnostic tools...');
+
+        const toolsStatus = await godmode.autoSetupDiagnosticTools();
+        console.log('🔧 Tools status:', toolsStatus);
+
+        setCrystalDiskInstalled(toolsStatus.crystaldiskinfo_installed);
+        setLhmInstalled(toolsStatus.librehardwaremonitor_installed);
+
+        if (toolsStatus.message) {
+          setSetupMessage(toolsStatus.message);
+        }
+        setSettingUpTools(false);
+
+        // Step 2: Load system data (now with tool data available)
         const [health, appList, startup] = await Promise.all([
           godmode.getDeepHealth(),
           godmode.getInstalledApps(),
@@ -64,20 +83,14 @@ export function GodModePage({ metrics }: GodModePageProps) {
         setApps(appList);
         setStartupItems(startup);
 
-        // Check CrystalDiskInfo if no SMART data
-        const hasSmartData = health?.smart_disks?.some(d => d.temperature_c !== null || d.power_on_hours !== null);
-        if (!hasSmartData) {
-          const cdiStatus = await godmode.checkCrystalDiskInfo();
-          setCrystalDiskInstalled(cdiStatus.installed);
-        }
-
-        // Load temperatures
+        // Step 3: Load temperatures
         const temps = await godmode.getAllTemperatures();
         console.log('🌡️ Temperatures:', temps);
         setTemperatures(temps);
         setLhmInstalled(temps.lhm_installed);
       } catch (e) {
         console.error('Error loading Mode Expert data:', e);
+        setSettingUpTools(false);
       } finally {
         setLoading(false);
       }
@@ -279,7 +292,12 @@ export function GodModePage({ metrics }: GodModePageProps) {
       <div className="page god-mode-page">
         <div className="loading-state">
           <div className="spinner"></div>
-          <p>Chargement Mode Expert...</p>
+          <p>{settingUpTools ? 'Installation outils de diagnostic...' : 'Chargement Mode Expert...'}</p>
+          {setupMessage && (
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+              {setupMessage}
+            </p>
+          )}
         </div>
       </div>
     );
