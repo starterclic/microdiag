@@ -13,6 +13,7 @@ mod database;
 mod sync;
 mod godmode;
 mod diagnostics;
+mod fixwin;
 
 use config::*;
 use metrics::*;
@@ -560,6 +561,46 @@ fn predict_failures() -> diagnostics::FailurePrediction {
 }
 
 // ============================================
+// FIXWIN COMMANDS (System Repair Tools)
+// ============================================
+
+#[tauri::command]
+fn fw_get_categories() -> Vec<fixwin::FixCategory> {
+    fixwin::get_fix_categories()
+}
+
+#[tauri::command]
+async fn fw_execute_fix(app: tauri::AppHandle, fix_id: String) -> Result<fixwin::FixResult, String> {
+    use tauri::Emitter;
+
+    // Execute fix with streaming output via events
+    let result = fixwin::execute_fix(&fix_id, |output| {
+        // Emit each line to frontend in real-time
+        let _ = app.emit("fixwin-output", serde_json::json!({
+            "fix_id": &fix_id,
+            "line": output.line,
+            "line_type": output.line_type,
+            "progress": output.progress,
+        }));
+    });
+
+    // Emit completion event
+    let _ = app.emit("fixwin-complete", serde_json::json!({
+        "fix_id": &fix_id,
+        "success": result.success,
+        "message": &result.message,
+        "requires_reboot": result.requires_reboot,
+    }));
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn fw_create_restore_point() -> fixwin::FixResult {
+    fixwin::fix_create_restore_point(|_| {})
+}
+
+// ============================================
 // HEARTBEAT
 // ============================================
 async fn send_heartbeat(device_token: &str, metrics: &SystemMetrics, health: &HealthScore, security: &SecurityStatus, deep_health: &godmode::DeepHealth) -> Result<(), String> {
@@ -888,6 +929,10 @@ fn main() {
             // v3.4.0 - CVE Scanner & Failure Prediction
             scan_cve,
             predict_failures,
+            // v3.12.0 - FixWin System Repair Tools
+            fw_get_categories,
+            fw_execute_fix,
+            fw_create_restore_point,
         ])
         .run(tauri::generate_context!())
         .expect("Error starting application");

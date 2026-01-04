@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { page: 'dashboard' as Page, icon: '📊', label: 'Tableau de bord' },
   { page: 'diagnostic' as Page, icon: '🩺', label: 'Diagnostic Pro' },
   { page: 'tools' as Page, icon: '🧰', label: 'Boîte à Outils' },
+  { page: 'fixwin' as Page, icon: '🔧', label: 'Réparation' },
   { page: 'godmode' as Page, icon: '⚡', label: 'Mode Expert' },
   { page: 'scan' as Page, icon: '🔍', label: 'Rapport Sécurité' },
   { page: 'chat' as Page, icon: '💬', label: 'Assistant IA' },

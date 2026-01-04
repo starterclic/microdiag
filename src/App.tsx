@@ -10,6 +10,7 @@ import { Toaster, toast } from 'sonner';
 import './styles/index.css';
 import './styles/diagnostic.css';
 import './styles/script-execution.css';
+import './styles/fixwin.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
@@ -25,7 +26,7 @@ import { Sidebar, UpdateModal, RemoteExecutionModal, OnboardingTutorial, Command
 import { ScriptExecutionModal, ExecutionPhase, ExecutionStep, parseScriptSteps, updateStepsFromOutput } from './components/ScriptExecutionModal';
 
 // Pages
-import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage, DiagnosticPage } from './pages';
+import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage, DiagnosticPage, FixWinPage } from './pages';
 
 // Scan steps timing (10 steps)
 const SCAN_STEP_DURATION = 1500;
@@ -875,6 +876,10 @@ function App() {
 
         {currentPage === 'diagnostic' && (
           <DiagnosticPage onRunAction={(action) => runQuickAction(action, action)} />
+        )}
+
+        {currentPage === 'fixwin' && (
+          <FixWinPage onRequestSupport={() => { setShowUrgency(true); setUrgencyType('technique'); }} />
         )}
       </main>
 
