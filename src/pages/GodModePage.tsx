@@ -46,6 +46,8 @@ export function GodModePage({ metrics }: GodModePageProps) {
   const [installingLhm, setInstallingLhm] = useState(false);
   const [settingUpTools, setSettingUpTools] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
+  const [setupErrors, setSetupErrors] = useState<string[]>([]);
+  const [needsAdmin, setNeedsAdmin] = useState(false);
 
   // Load initial data with auto-setup of diagnostic tools
   useEffect(() => {
@@ -61,6 +63,16 @@ export function GodModePage({ metrics }: GodModePageProps) {
 
         setCrystalDiskInstalled(toolsStatus.crystaldiskinfo_installed);
         setLhmInstalled(toolsStatus.librehardwaremonitor_installed);
+
+        // Capture errors and admin status
+        if (toolsStatus.errors && toolsStatus.errors.length > 0) {
+          setSetupErrors(toolsStatus.errors);
+          console.log('⚠️ Setup errors:', toolsStatus.errors);
+        }
+        if (toolsStatus.needs_admin) {
+          setNeedsAdmin(true);
+          console.log('⚠️ Admin rights needed for LibreHardwareMonitor');
+        }
 
         if (toolsStatus.message) {
           setSetupMessage(toolsStatus.message);
@@ -335,6 +347,45 @@ export function GodModePage({ metrics }: GodModePageProps) {
           </button>
         ))}
       </div>
+
+      {/* Error/Warning Banner */}
+      {(setupErrors.length > 0 || needsAdmin) && (
+        <div className="gm-warning-banner" style={{
+          background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(239, 68, 68, 0.1))',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: '0.5rem',
+          padding: '1rem',
+          marginBottom: '1rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#f59e0b', fontWeight: 600 }}>
+                Configuration des outils de diagnostic
+              </h4>
+              {needsAdmin && (
+                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <strong style={{ color: '#ef4444' }}>LibreHardwareMonitor necessite les droits administrateur</strong> pour lire les temperatures materielles.
+                  <br />
+                  <span style={{ opacity: 0.8 }}>Relancez Microdiag Sentinel en tant qu'administrateur (clic droit → Executer en tant qu'administrateur)</span>
+                </p>
+              )}
+              {setupErrors.length > 0 && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <p style={{ margin: '0 0 0.25rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Erreurs detectees :
+                  </p>
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    {setupErrors.map((err, i) => (
+                      <li key={i} style={{ marginBottom: '0.25rem' }}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="gm-content">

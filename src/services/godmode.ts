@@ -337,9 +337,14 @@ export async function getAllTemperatures(): Promise<HardwareTemperatures> {
 export interface DiagnosticToolsStatus {
   crystaldiskinfo_installed: boolean;
   crystaldiskinfo_installing: boolean;
+  crystaldiskinfo_path: string | null;
   librehardwaremonitor_installed: boolean;
   librehardwaremonitor_installing: boolean;
+  librehardwaremonitor_path: string | null;
+  librehardwaremonitor_running: boolean;
+  needs_admin: boolean;
   message: string;
+  errors: string[];
 }
 
 /**

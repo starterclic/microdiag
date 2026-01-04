@@ -403,11 +403,19 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
 fn find_crystaldiskinfo_exe() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
+    let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let programfiles = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let programfiles86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+
     let possible_paths = vec![
-        PathBuf::from(r"C:\Program Files\CrystalDiskInfo\DiskInfo64.exe"),
-        PathBuf::from(r"C:\Program Files (x86)\CrystalDiskInfo\DiskInfo32.exe"),
-        PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
-        PathBuf::from(format!(r"{}\Programs\CrystalDiskInfo\DiskInfo64.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+        // Standard install locations
+        PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", programfiles)),
+        PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo32.exe", programfiles86)),
+        // Winget install location (user scope)
+        PathBuf::from(format!(r"{}\Microsoft\WinGet\Packages\CrystalDewWorld.CrystalDiskInfo_Microsoft.Winget.Source_8wekyb3d8bbwe\DiskInfo64.exe", localappdata)),
+        PathBuf::from(format!(r"{}\Programs\CrystalDiskInfo\DiskInfo64.exe", localappdata)),
+        // Portable
+        PathBuf::from(format!(r"{}\CrystalDiskInfo\DiskInfo64.exe", localappdata)),
     ];
 
     for path in possible_paths {
@@ -415,6 +423,25 @@ fn find_crystaldiskinfo_exe() -> Option<std::path::PathBuf> {
             return Some(path);
         }
     }
+
+    // Try to find via where command
+    use std::process::Command;
+    if let Ok(output) = Command::new("where")
+        .arg("DiskInfo64.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = path_str.lines().next() {
+                let path = PathBuf::from(first_line.trim());
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -685,11 +712,18 @@ pub struct HardwareTemperatures {
 fn find_librehardwaremonitor_exe() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
 
+    let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let programfiles = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let programfiles86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".to_string());
+
     let possible_paths = vec![
-        PathBuf::from(r"C:\Program Files\LibreHardwareMonitor\LibreHardwareMonitor.exe"),
-        PathBuf::from(r"C:\Program Files (x86)\LibreHardwareMonitor\LibreHardwareMonitor.exe"),
-        PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
-        PathBuf::from(format!(r"{}\Programs\LibreHardwareMonitor\LibreHardwareMonitor.exe", std::env::var("LOCALAPPDATA").unwrap_or_default())),
+        // Standard install locations
+        PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", programfiles)),
+        PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", programfiles86)),
+        // Winget install location
+        PathBuf::from(format!(r"{}\Microsoft\WinGet\Packages\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.Winget.Source_8wekyb3d8bbwe\LibreHardwareMonitor.exe", localappdata)),
+        PathBuf::from(format!(r"{}\Programs\LibreHardwareMonitor\LibreHardwareMonitor.exe", localappdata)),
+        PathBuf::from(format!(r"{}\LibreHardwareMonitor\LibreHardwareMonitor.exe", localappdata)),
     ];
 
     for path in possible_paths {
@@ -697,6 +731,25 @@ fn find_librehardwaremonitor_exe() -> Option<std::path::PathBuf> {
             return Some(path);
         }
     }
+
+    // Try to find via where command
+    use std::process::Command;
+    if let Ok(output) = Command::new("where")
+        .arg("LibreHardwareMonitor.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = path_str.lines().next() {
+                let path = PathBuf::from(first_line.trim());
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -976,9 +1029,14 @@ pub async fn install_librehardwaremonitor() -> TweakResult {
 pub struct DiagnosticToolsStatus {
     pub crystaldiskinfo_installed: bool,
     pub crystaldiskinfo_installing: bool,
+    pub crystaldiskinfo_path: Option<String>,
     pub librehardwaremonitor_installed: bool,
     pub librehardwaremonitor_installing: bool,
+    pub librehardwaremonitor_path: Option<String>,
+    pub librehardwaremonitor_running: bool,
+    pub needs_admin: bool,
     pub message: String,
+    pub errors: Vec<String>,
 }
 
 #[cfg(windows)]
@@ -987,12 +1045,20 @@ pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
     use std::thread;
     use std::time::Duration;
 
+    let cdi_path = find_crystaldiskinfo_exe();
+    let lhm_path = find_librehardwaremonitor_exe();
+
     let mut status = DiagnosticToolsStatus {
-        crystaldiskinfo_installed: find_crystaldiskinfo_exe().is_some(),
+        crystaldiskinfo_installed: cdi_path.is_some(),
         crystaldiskinfo_installing: false,
-        librehardwaremonitor_installed: find_librehardwaremonitor_exe().is_some(),
+        crystaldiskinfo_path: cdi_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        librehardwaremonitor_installed: lhm_path.is_some(),
         librehardwaremonitor_installing: false,
+        librehardwaremonitor_path: lhm_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        librehardwaremonitor_running: false,
+        needs_admin: false,
         message: String::new(),
+        errors: Vec::new(),
     };
 
     let mut messages = Vec::new();
@@ -1012,13 +1078,26 @@ pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
-        if let Ok(output) = result {
-            if output.status.success() {
-                thread::sleep(Duration::from_secs(2));
-                status.crystaldiskinfo_installed = find_crystaldiskinfo_exe().is_some();
-                if status.crystaldiskinfo_installed {
-                    messages.push("CrystalDiskInfo installe");
+        match result {
+            Ok(output) => {
+                if output.status.success() {
+                    thread::sleep(Duration::from_secs(3));
+                    let new_path = find_crystaldiskinfo_exe();
+                    status.crystaldiskinfo_installed = new_path.is_some();
+                    status.crystaldiskinfo_path = new_path.map(|p| p.to_string_lossy().to_string());
+                    if status.crystaldiskinfo_installed {
+                        messages.push("CrystalDiskInfo installe".to_string());
+                    } else {
+                        status.errors.push("CrystalDiskInfo: winget OK mais exe non trouve".to_string());
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    status.errors.push(format!("CrystalDiskInfo install: {}{}", stdout, stderr));
                 }
+            }
+            Err(e) => {
+                status.errors.push(format!("winget non disponible: {}", e));
             }
         }
         status.crystaldiskinfo_installing = false;
@@ -1039,13 +1118,26 @@ pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
-        if let Ok(output) = result {
-            if output.status.success() {
-                thread::sleep(Duration::from_secs(2));
-                status.librehardwaremonitor_installed = find_librehardwaremonitor_exe().is_some();
-                if status.librehardwaremonitor_installed {
-                    messages.push("LibreHardwareMonitor installe");
+        match result {
+            Ok(output) => {
+                if output.status.success() {
+                    thread::sleep(Duration::from_secs(3));
+                    let new_path = find_librehardwaremonitor_exe();
+                    status.librehardwaremonitor_installed = new_path.is_some();
+                    status.librehardwaremonitor_path = new_path.map(|p| p.to_string_lossy().to_string());
+                    if status.librehardwaremonitor_installed {
+                        messages.push("LibreHardwareMonitor installe".to_string());
+                    } else {
+                        status.errors.push("LHM: winget OK mais exe non trouve".to_string());
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    status.errors.push(format!("LHM install: {}{}", stdout, stderr));
                 }
+            }
+            Err(e) => {
+                status.errors.push(format!("winget: {}", e));
             }
         }
         status.librehardwaremonitor_installing = false;
@@ -1053,47 +1145,94 @@ pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
 
     // Run CrystalDiskInfo to generate report
     if status.crystaldiskinfo_installed {
-        if let Some(exe_path) = find_crystaldiskinfo_exe() {
+        if let Some(ref path_str) = status.crystaldiskinfo_path {
+            let exe_path = std::path::PathBuf::from(path_str);
             if let Some(exe_dir) = exe_path.parent() {
-                let _ = Command::new(&exe_path)
+                match Command::new(&exe_path)
                     .arg("/CopyExit")
                     .current_dir(exe_dir)
                     .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-                thread::sleep(Duration::from_millis(500));
+                    .output()
+                {
+                    Ok(_) => {
+                        thread::sleep(Duration::from_millis(1000));
+                        // Check if DiskInfo.txt was created
+                        let txt_path = exe_dir.join("DiskInfo.txt");
+                        if txt_path.exists() {
+                            messages.push("SMART OK".to_string());
+                        } else {
+                            status.errors.push("DiskInfo.txt non genere".to_string());
+                        }
+                    }
+                    Err(e) => {
+                        status.errors.push(format!("CrystalDiskInfo run: {}", e));
+                    }
+                }
             }
         }
     }
 
-    // Launch LibreHardwareMonitor to activate WMI sensors
+    // Check if LibreHardwareMonitor is running
     if status.librehardwaremonitor_installed {
-        if let Some(exe_path) = find_librehardwaremonitor_exe() {
-            // Check if already running
-            let tasklist = Command::new("tasklist")
-                .args(["/FI", "IMAGENAME eq LibreHardwareMonitor.exe"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
+        let tasklist = Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq LibreHardwareMonitor.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
 
-            let already_running = tasklist
-                .map(|o| String::from_utf8_lossy(&o.stdout).contains("LibreHardwareMonitor"))
-                .unwrap_or(false);
+        status.librehardwaremonitor_running = tasklist
+            .map(|o| {
+                let output = String::from_utf8_lossy(&o.stdout);
+                output.contains("LibreHardwareMonitor.exe")
+            })
+            .unwrap_or(false);
 
-            if !already_running {
-                // Launch minimized to system tray
-                let _ = Command::new(&exe_path)
-                    .arg("--minimized")
+        // If not running, try to launch it
+        if !status.librehardwaremonitor_running {
+            if let Some(ref path_str) = status.librehardwaremonitor_path {
+                let exe_path = std::path::PathBuf::from(path_str);
+                // Launch with admin privileges request
+                match Command::new(&exe_path)
                     .creation_flags(CREATE_NO_WINDOW)
-                    .spawn();
-                thread::sleep(Duration::from_secs(2));
-                messages.push("LibreHardwareMonitor lance");
+                    .spawn()
+                {
+                    Ok(_) => {
+                        thread::sleep(Duration::from_secs(3));
+                        // Re-check if running
+                        let tasklist2 = Command::new("tasklist")
+                            .args(["/FI", "IMAGENAME eq LibreHardwareMonitor.exe"])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .output();
+
+                        status.librehardwaremonitor_running = tasklist2
+                            .map(|o| String::from_utf8_lossy(&o.stdout).contains("LibreHardwareMonitor.exe"))
+                            .unwrap_or(false);
+
+                        if status.librehardwaremonitor_running {
+                            messages.push("LHM lance".to_string());
+                        } else {
+                            status.needs_admin = true;
+                            status.errors.push("LHM necessite droits admin".to_string());
+                        }
+                    }
+                    Err(e) => {
+                        status.needs_admin = true;
+                        status.errors.push(format!("LHM launch: {} - Lancez en admin", e));
+                    }
+                }
             }
+        } else {
+            messages.push("LHM actif".to_string());
         }
     }
 
     status.message = if messages.is_empty() {
-        "Outils de diagnostic prets".to_string()
+        if status.errors.is_empty() {
+            "Outils de diagnostic prets".to_string()
+        } else {
+            status.errors.join(" | ")
+        }
     } else {
-        messages.join(", ")
+        messages.join(" | ")
     };
 
     status
@@ -1104,9 +1243,14 @@ pub async fn auto_setup_diagnostic_tools() -> DiagnosticToolsStatus {
     DiagnosticToolsStatus {
         crystaldiskinfo_installed: false,
         crystaldiskinfo_installing: false,
+        crystaldiskinfo_path: None,
         librehardwaremonitor_installed: false,
         librehardwaremonitor_installing: false,
+        librehardwaremonitor_path: None,
+        librehardwaremonitor_running: false,
+        needs_admin: false,
         message: "Disponible uniquement sur Windows".to_string(),
+        errors: vec![],
     }
 }
 
