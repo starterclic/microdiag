@@ -363,14 +363,28 @@ export function GodModePage({ metrics }: GodModePageProps) {
               </div>
             )}
 
-            {/* DEBUG INFO */}
-            {deepHealth && (
-              <div style={{ padding: '1rem', background: 'rgba(255, 107, 0, 0.1)', borderRadius: '8px', marginTop: '1rem', fontSize: '0.875rem' }}>
-                <strong>🔍 Debug Info:</strong>
-                <div>SMART Disks: {deepHealth.smart_disks?.length || 0}</div>
-                <div>Battery: {deepHealth.battery?.is_present ? 'Présent' : 'Absent'}</div>
-                <div>Drivers: {deepHealth.drivers?.length || 0}</div>
-                <div>Computer: {deepHealth.computer_name}</div>
+            {/* Battery Info - Only show if relevant */}
+            {deepHealth?.battery && (
+              <div className="dashboard-card" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(30, 30, 50, 0.6)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span style={{ fontSize: '2rem' }}>
+                    {deepHealth.battery.is_present ? '🔋' : deepHealth.battery.status === 'PC fixe' ? '🖥️' : '🔌'}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                      {deepHealth.battery.is_present
+                        ? `Batterie: ${deepHealth.battery.charge_percent}%`
+                        : deepHealth.battery.status === 'PC fixe'
+                          ? 'PC de bureau (pas de batterie)'
+                          : 'Batterie retirée'}
+                    </div>
+                    {deepHealth.battery.is_present && (
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        {deepHealth.battery.status} • Santé: {deepHealth.battery.health_percent}%
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -443,12 +457,12 @@ export function GodModePage({ metrics }: GodModePageProps) {
                   ))}
                 </div>
               </div>
-            ) : (
-              <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', marginTop: '1rem', textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
-                <div style={{ fontWeight: 500 }}>Aucune donnée SMART disponible</div>
+            ) : deepHealth && (
+              <div style={{ padding: '1rem', background: 'rgba(100, 100, 100, 0.1)', borderRadius: '8px', marginTop: '1rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>💿</div>
+                <div style={{ fontWeight: 500 }}>Diagnostic SMART en cours...</div>
                 <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                  Les données SMART nécessitent des droits admin ou ne sont pas supportées par votre disque
+                  Si aucune donnée n'apparaît, votre disque ne supporte peut-être pas les requêtes SMART standard.
                 </div>
               </div>
             )}

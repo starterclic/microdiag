@@ -316,19 +316,22 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
         });
     }
 
-    // Try to get SMART data from MSStorageDriver (requires admin)
-    // This is done via PowerShell as WMI root/wmi access is complex
+    // Try to get SMART data from PowerShell (native Windows 10/11 or WMI fallback)
     if let Some(smart_data) = get_smart_attributes_powershell() {
-        for disk in &mut disks {
-            // Match by device_id: "\\\\.\\PHYSICALDRIVE0" -> "PHYSICALDRIVE0"
+        for (idx, disk) in disks.iter_mut().enumerate() {
+            // Try multiple matching strategies
+            // 1. Match by index: DISK0, DISK1, etc.
+            // 2. Match by device_id: PHYSICALDRIVE0 in instance name
+            let disk_key = format!("DISK{}", idx);
             let normalized_device_id = disk.device_id
                 .replace("\\\\.\\", "")
                 .to_uppercase();
 
             // Try to find matching SMART data
-            let attrs = smart_data.iter()
-                .find(|(key, _)| key.to_uppercase().contains(&normalized_device_id))
-                .map(|(_, v)| v);
+            let attrs = smart_data.get(&disk_key)
+                .or_else(|| smart_data.iter()
+                    .find(|(key, _)| key.to_uppercase().contains(&normalized_device_id))
+                    .map(|(_, v)| v));
 
             if let Some(attrs) = attrs {
                 disk.temperature_c = attrs.temperature;
@@ -349,6 +352,11 @@ fn get_smart_disk_info(wmi_con: &wmi::WMIConnection) -> Vec<SmartDiskInfo> {
                 }
                 if let Some(uncorr) = attrs.uncorrectable_errors {
                     if uncorr > 0 { health = health.saturating_sub(25); }
+                }
+                // Temperature warning
+                if let Some(temp) = attrs.temperature {
+                    if temp > 60 { health = health.saturating_sub(10); }
+                    if temp > 70 { health = health.saturating_sub(20); }
                 }
                 disk.health_percent = health;
                 disk.health_status = if health >= 80 { "Bon" } else if health >= 50 { "Attention" } else { "Critique" }.to_string();
@@ -373,44 +381,56 @@ struct SmartAttributes {
 fn get_smart_attributes_powershell() -> Option<HashMap<String, SmartAttributes>> {
     use std::process::Command;
 
-    // PowerShell script to get SMART data via WMI
+    // Use native Windows 10/11 Get-StorageReliabilityCounter (NO ADMIN REQUIRED!)
     let ps_script = r#"
+$result = @{}
 try {
-    $disks = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue
-    $result = @{}
-
+    # Method 1: Native Windows 10/11 Storage cmdlets (best, no admin)
+    $disks = Get-PhysicalDisk -ErrorAction SilentlyContinue
     foreach ($disk in $disks) {
+        $reliability = $disk | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue
+        if ($reliability) {
+            $key = "DISK" + $disk.DeviceId
+            $result[$key] = @{
+                temperature = $reliability.Temperature
+                power_on_hours = $reliability.PowerOnHours
+                power_cycle_count = $reliability.StartStopCycleCount
+                read_errors = $reliability.ReadErrorsTotal
+                write_errors = $reliability.WriteErrorsTotal
+                wear = $reliability.Wear
+            }
+        }
+    }
+
+    # If we got results, return them
+    if ($result.Count -gt 0) {
+        $result | ConvertTo-Json -Compress
+        return
+    }
+
+    # Method 2: Fallback to WMI MSStorageDriver (requires admin but try anyway)
+    $wmiDisks = Get-CimInstance -Namespace root\wmi -ClassName MSStorageDriver_FailurePredictData -ErrorAction SilentlyContinue
+    foreach ($disk in $wmiDisks) {
         $instance = $disk.InstanceName -replace '_0$',''
         $data = $disk.VendorSpecific
-
         if ($data -and $data.Length -ge 362) {
-            # Parse SMART attributes (each attribute = 12 bytes)
-            # Structure: [ID(1)][Flags(2)][Value(1)][Worst(1)][Reserved(1)][RawValue(6)]
             $attrs = @{}
-
             for ($i = 2; $i -lt 362; $i += 12) {
                 $attrId = $data[$i]
                 if ($attrId -eq 0) { continue }
-
-                # Extract raw value (6 bytes, little-endian)
                 $rawValue = [BitConverter]::ToUInt32($data, $i + 5)
-
-                # Map common SMART attributes
                 switch ($attrId) {
                     5 { $attrs['reallocated_sectors'] = $rawValue }
                     9 { $attrs['power_on_hours'] = $rawValue }
                     12 { $attrs['power_cycle_count'] = $rawValue }
                     194 { $attrs['temperature'] = [Math]::Min($rawValue -band 0xFF, 100) }
-                    196 { $attrs['realloc_events'] = $rawValue }
                     197 { $attrs['pending_sectors'] = $rawValue }
                     198 { $attrs['uncorrectable'] = $rawValue }
                 }
             }
-
             $result[$instance] = $attrs
         }
     }
-
     $result | ConvertTo-Json -Compress
 } catch {
     @{} | ConvertTo-Json
@@ -473,9 +493,9 @@ fn extract_u64(variant: Option<&wmi::Variant>) -> u64 {
 fn get_critical_drivers(wmi_con: &wmi::WMIConnection) -> Vec<DriverInfo> {
     let mut drivers = Vec::new();
 
-    // Query PnP Signed Drivers for critical hardware
+    // Query ALL PnP Signed Drivers and filter in code (more reliable)
     let driver_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
-        .raw_query("SELECT DeviceName, DriverVersion, Manufacturer, DriverDate, DeviceClass, Status FROM Win32_PnPSignedDriver WHERE DeviceClass='Display' OR DeviceClass='Net' OR DeviceClass='SCSIAdapter' OR DeviceClass='System' OR DeviceClass='MEDIA'")
+        .raw_query("SELECT DeviceName, DriverVersion, Manufacturer, DriverDate, DeviceClass, Status FROM Win32_PnPSignedDriver WHERE DriverVersion IS NOT NULL")
         .unwrap_or_default();
 
     for drv in driver_results {
@@ -486,22 +506,57 @@ fn get_critical_drivers(wmi_con: &wmi::WMIConnection) -> Vec<DriverInfo> {
         let device_class = extract_string(drv.get("DeviceClass"));
         let status = extract_string(drv.get("Status"));
 
-        // Determine driver type based on device class and name
-        let driver_type = if device_class == "Display" || device_name.to_lowercase().contains("nvidia")
-            || device_name.to_lowercase().contains("amd") || device_name.to_lowercase().contains("intel") && device_name.to_lowercase().contains("graphics") {
+        // Skip empty or unknown devices
+        if device_name.is_empty() || device_name == "Unknown" || version.is_empty() {
+            continue;
+        }
+
+        let name_lower = device_name.to_lowercase();
+        let mfr_lower = manufacturer.to_lowercase();
+
+        // Determine driver type based on device class AND name
+        let driver_type = if device_class == "Display"
+            || name_lower.contains("nvidia")
+            || name_lower.contains("geforce")
+            || name_lower.contains("radeon")
+            || name_lower.contains("amd") && name_lower.contains("graphics")
+            || name_lower.contains("intel") && (name_lower.contains("graphics") || name_lower.contains("uhd") || name_lower.contains("iris"))
+            || name_lower.contains("vga")
+        {
             "GPU"
-        } else if device_class == "Net" {
+        } else if device_class == "Net"
+            || name_lower.contains("ethernet")
+            || name_lower.contains("wifi")
+            || name_lower.contains("wi-fi")
+            || name_lower.contains("wireless")
+            || name_lower.contains("network")
+            || name_lower.contains("lan")
+            || name_lower.contains("realtek")
+            || name_lower.contains("intel") && name_lower.contains("connection")
+        {
             "Network"
-        } else if device_class == "System" || device_name.to_lowercase().contains("chipset") {
+        } else if name_lower.contains("chipset")
+            || name_lower.contains("smbus")
+            || name_lower.contains("pci express")
+            || name_lower.contains("management engine")
+            || name_lower.contains("serial io")
+            || (mfr_lower.contains("intel") && name_lower.contains("controller") && !name_lower.contains("usb"))
+        {
             "Chipset"
-        } else if device_class == "MEDIA" || device_name.to_lowercase().contains("audio") {
+        } else if device_class == "MEDIA"
+            || name_lower.contains("audio")
+            || name_lower.contains("sound")
+            || name_lower.contains("realtek") && name_lower.contains("high definition")
+            || name_lower.contains("nvidia") && name_lower.contains("audio")
+            || name_lower.contains("amd") && name_lower.contains("audio")
+        {
             "Audio"
         } else {
             "Other"
         };
 
         // Only add important drivers (GPU, Network, Chipset, Audio)
-        if driver_type != "Other" && !version.is_empty() {
+        if driver_type != "Other" {
             // Format driver date (remove time part if exists)
             let formatted_date = if let Some(date_part) = driver_date.split('.').next() {
                 // Convert WMI date format (YYYYMMDD) to DD/MM/YYYY
@@ -527,6 +582,10 @@ fn get_critical_drivers(wmi_con: &wmi::WMIConnection) -> Vec<DriverInfo> {
             });
         }
     }
+
+    // Deduplicate by name (keep first occurrence)
+    let mut seen = std::collections::HashSet::new();
+    drivers.retain(|d| seen.insert(d.name.clone()));
 
     // Sort by driver type (GPU first, then Network, Chipset, Audio)
     drivers.sort_by(|a, b| {
@@ -744,6 +803,25 @@ $result | ConvertTo-Json -Compress
 
 #[cfg(windows)]
 fn get_battery_health(wmi_con: &wmi::WMIConnection) -> BatteryHealth {
+    // First check if this is a laptop/portable device
+    let chassis_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
+        .raw_query("SELECT ChassisTypes FROM Win32_SystemEnclosure")
+        .unwrap_or_default();
+
+    let is_portable = chassis_results.first()
+        .and_then(|c| c.get("ChassisTypes"))
+        .map(|v| {
+            // ChassisTypes that indicate portable: 8=Portable, 9=Laptop, 10=Notebook, 14=Sub Notebook, 31=Convertible, 32=Detachable
+            let portable_types = [8, 9, 10, 14, 31, 32];
+            match v {
+                wmi::Variant::Array(arr) => arr.iter().any(|v| {
+                    if let wmi::Variant::UI2(n) = v { portable_types.contains(&(*n as i32)) } else { false }
+                }),
+                _ => false,
+            }
+        })
+        .unwrap_or(false);
+
     // Battery status
     let battery_results: Vec<HashMap<String, wmi::Variant>> = wmi_con
         .raw_query("SELECT EstimatedChargeRemaining, BatteryStatus FROM Win32_Battery")
@@ -754,36 +832,83 @@ fn get_battery_health(wmi_con: &wmi::WMIConnection) -> BatteryHealth {
         let status_code = extract_u32(bat.get("BatteryStatus"));
 
         let status = match status_code {
-            1 => "Discharging",
-            2 => "AC Power",
-            3 => "Fully Charged",
-            4 => "Low",
-            5 => "Critical",
-            _ => "Unknown",
+            1 => "Decharge",
+            2 => "Secteur",
+            3 => "Charge complete",
+            4 => "Faible",
+            5 => "Critique",
+            _ => "Inconnu",
         };
 
-        // Try to get battery wear level from WMI root\WMI namespace
-        // This is a simplified version - real implementation needs separate WMI connection
-        let health_percent = 100u8; // Placeholder, real implementation would query BatteryFullChargedCapacity
+        // Try to get battery wear level via PowerShell
+        let (health_percent, design_cap, full_cap) = get_battery_wear_powershell();
 
         BatteryHealth {
             is_present: true,
             charge_percent: charge.min(100),
             health_percent,
             status: status.into(),
-            design_capacity: 0,
-            full_charge_capacity: 0,
+            design_capacity: design_cap,
+            full_charge_capacity: full_cap,
         }
     } else {
+        // No battery detected
+        let status = if is_portable {
+            "Batterie retiree" // Laptop without battery
+        } else {
+            "PC fixe" // Desktop PC
+        };
+
         BatteryHealth {
             is_present: false,
             charge_percent: 0,
-            health_percent: 100,
-            status: "No Battery".into(),
+            health_percent: 0,
+            status: status.into(),
             design_capacity: 0,
             full_charge_capacity: 0,
         }
     }
+}
+
+#[cfg(windows)]
+fn get_battery_wear_powershell() -> (u8, u32, u32) {
+    use std::process::Command;
+
+    let ps_script = r#"
+try {
+    $battery = Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -ErrorAction SilentlyContinue | Select-Object -First 1
+    $design = Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($battery -and $design -and $design.DesignedCapacity -gt 0) {
+        $health = [math]::Round(($battery.FullChargedCapacity / $design.DesignedCapacity) * 100)
+        @{
+            health = [math]::Min($health, 100)
+            design = $design.DesignedCapacity
+            full = $battery.FullChargedCapacity
+        } | ConvertTo-Json -Compress
+    } else {
+        @{ health = 100; design = 0; full = 0 } | ConvertTo-Json -Compress
+    }
+} catch {
+    @{ health = 100; design = 0; full = 0 } | ConvertTo-Json -Compress
+}
+"#;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(out) = output {
+        if let Ok(json_str) = String::from_utf8(out.stdout) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                let health = data.get("health").and_then(|v| v.as_u64()).unwrap_or(100) as u8;
+                let design = data.get("design").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let full = data.get("full").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                return (health, design, full);
+            }
+        }
+    }
+    (100, 0, 0)
 }
 
 #[cfg(windows)]
