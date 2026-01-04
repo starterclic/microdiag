@@ -9,7 +9,7 @@ edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2.5.3", features = [] }
-winres = "0.1"
+embed-manifest = "1.4"
 
 [dependencies]
 tauri = { version = "2.9.5", features = ["tray-icon"] }

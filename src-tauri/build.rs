@@ -1,13 +1,16 @@
 fn main() {
-    // Embed Windows manifest for admin elevation
+    // Embed Windows manifest for admin elevation (no version conflict)
     #[cfg(windows)]
     {
-        let mut res = winres::WindowsResource::new();
-        res.set_manifest_file("app.manifest");
-        if let Err(e) = res.compile() {
-            eprintln!("Warning: Failed to compile Windows resources: {}", e);
-        }
+        use embed_manifest::{embed_manifest, new_manifest};
+        use embed_manifest::manifest::{ExecutionLevel, SupportedOS};
+
+        embed_manifest(
+            new_manifest("Microdiag Sentinel")
+                .requested_execution_level(ExecutionLevel::RequireAdministrator)
+                .supported_os(SupportedOS::Windows10..)
+        ).expect("Failed to embed manifest");
     }
 
-    tauri_build::build()
+    tauri_build::build();
 }
