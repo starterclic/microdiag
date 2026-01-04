@@ -1,6 +1,7 @@
 // ============================================
 // MICRODIAG SENTINEL - FixWin Page
 // Windows System Repair Tools with Pro UX
+// Using emojis for consistency with app style
 // ============================================
 
 import { useState, useEffect, useRef } from 'react';
@@ -18,36 +19,20 @@ import {
   getLineColor
 } from '../services/fixwin';
 
-// Icons
-import {
-  Wifi,
-  Settings,
-  Folder,
-  Download,
-  Trash2,
-  Zap,
-  Shield,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Terminal,
-  Play,
-  ChevronRight,
-  ChevronDown,
-  RefreshCw,
-  HelpCircle,
-  Save
-} from 'lucide-react';
-
-// Icon mapping
-const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  wifi: Wifi,
-  settings: Settings,
-  folder: Folder,
-  download: Download,
-  trash: Trash2,
-  zap: Zap
+// Emoji icon mapping
+const CATEGORY_ICONS: Record<string, string> = {
+  wifi: '📶',
+  settings: '⚙️',
+  folder: '📁',
+  download: '📥',
+  trash: '🗑️',
+  zap: '⚡',
+  network: '📶',
+  system: '⚙️',
+  explorer: '📁',
+  windows_update: '📥',
+  cleanup: '🗑️',
+  services: '⚡'
 };
 
 interface Props {
@@ -207,8 +192,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
   };
 
   const getCategoryIcon = (iconName: string) => {
-    const Icon = ICONS[iconName] || Settings;
-    return <Icon size={20} />;
+    return CATEGORY_ICONS[iconName] || CATEGORY_ICONS[iconName.toLowerCase()] || '🔧';
   };
 
   return (
@@ -217,7 +201,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
       <div className="fw-header">
         <div className="fw-header-content">
           <div className="fw-header-icon">
-            <Shield size={28} />
+            🛡️
           </div>
           <div className="fw-header-text">
             <h1>Outils de Reparation</h1>
@@ -229,8 +213,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
           onClick={handleCreateRestorePoint}
           disabled={creatingRestorePoint || isRunning}
         >
-          <Save size={18} />
-          {creatingRestorePoint ? 'Creation...' : 'Creer un point de restauration'}
+          💾 {creatingRestorePoint ? 'Creation...' : 'Creer un point de restauration'}
         </button>
       </div>
 
@@ -247,10 +230,10 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                   className={`fw-category-header ${expandedCategories.has(category.id) ? 'expanded' : ''}`}
                   onClick={() => toggleCategory(category.id)}
                 >
-                  <span className="fw-category-icon">{getCategoryIcon(category.icon)}</span>
+                  <span className="fw-category-icon">{getCategoryIcon(category.icon || category.id)}</span>
                   <span className="fw-category-name">{category.name}</span>
                   <span className="fw-category-count">{category.fixes.length}</span>
-                  {expandedCategories.has(category.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="fw-chevron">{expandedCategories.has(category.id) ? '▼' : '▶'}</span>
                 </button>
 
                 {expandedCategories.has(category.id) && (
@@ -293,19 +276,16 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                       {RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.label}
                     </span>
                     <span className="fw-time-badge">
-                      <Clock size={14} />
-                      {selectedFix.estimated_time}
+                      🕐 {selectedFix.estimated_time}
                     </span>
                     {selectedFix.requires_reboot && (
                       <span className="fw-reboot-badge">
-                        <RefreshCw size={14} />
-                        Redemarrage requis
+                        🔄 Redemarrage requis
                       </span>
                     )}
                     {selectedFix.requires_admin && (
                       <span className="fw-admin-badge">
-                        <Shield size={14} />
-                        Admin requis
+                        🛡️ Admin requis
                       </span>
                     )}
                   </div>
@@ -316,7 +296,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 {/* Risk Warning */}
                 {selectedFix.risk_level !== 'low' && (
                   <div className="fw-warning" style={getRiskStyle(selectedFix.risk_level)}>
-                    <AlertTriangle size={20} />
+                    <span className="fw-warning-icon">⚠️</span>
                     <div>
                       <strong>{RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.label}</strong>
                       <p>{RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.description}</p>
@@ -332,22 +312,15 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                     disabled={isRunning}
                   >
                     {isRunning ? (
-                      <>
-                        <RefreshCw size={18} className="spinning" />
-                        Execution en cours...
-                      </>
+                      <>🔄 Execution en cours...</>
                     ) : (
-                      <>
-                        <Play size={18} />
-                        Executer
-                      </>
+                      <>▶️ Executer</>
                     )}
                   </button>
 
                   {onRequestSupport && (
                     <button className="fw-help-btn" onClick={onRequestSupport}>
-                      <HelpCircle size={18} />
-                      Demander de l'aide
+                      ❓ Demander de l'aide
                     </button>
                   )}
                 </div>
@@ -368,14 +341,13 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 {/* Result Banner */}
                 {result && (
                   <div className={`fw-result ${result.success ? 'success' : 'error'}`}>
-                    {result.success ? <CheckCircle size={24} /> : <XCircle size={24} />}
+                    <span className="fw-result-icon">{result.success ? '✅' : '❌'}</span>
                     <div>
                       <strong>{result.success ? 'Operation reussie !' : 'Erreur'}</strong>
                       <p>{result.message}</p>
                       {result.requires_reboot && (
                         <p className="fw-reboot-notice">
-                          <RefreshCw size={14} />
-                          Un redemarrage est necessaire pour appliquer les changements
+                          🔄 Un redemarrage est necessaire pour appliquer les changements
                         </p>
                       )}
                     </div>
@@ -387,8 +359,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
               {terminalOutput.length > 0 && (
                 <div className="fw-terminal">
                   <div className="fw-terminal-header">
-                    <Terminal size={16} />
-                    <span>Sortie</span>
+                    <span>💻 Sortie</span>
                     <div className="fw-terminal-dots">
                       <span className="dot red" />
                       <span className="dot yellow" />
@@ -413,7 +384,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
           ) : (
             /* Empty State */
             <div className="fw-empty">
-              <Settings size={48} className="fw-empty-icon" />
+              <span className="fw-empty-icon">⚙️</span>
               <h3>Selectionnez un outil</h3>
               <p>Choisissez une categorie et un outil dans le panneau de gauche pour commencer</p>
             </div>
@@ -426,7 +397,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
         <div className="fw-modal-overlay" onClick={() => setShowConfirmModal(false)}>
           <div className="fw-modal" onClick={e => e.stopPropagation()}>
             <div className="fw-modal-header">
-              <AlertTriangle size={24} style={{ color: RISK_LEVELS[selectedFix.risk_level as keyof typeof RISK_LEVELS]?.color }} />
+              <span style={{ fontSize: '1.5rem' }}>⚠️</span>
               <h3>Confirmer l'operation</h3>
             </div>
 
@@ -449,8 +420,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 </div>
                 {selectedFix.requires_reboot && (
                   <div className="fw-modal-info-row warning">
-                    <RefreshCw size={14} />
-                    <span>Un redemarrage sera necessaire</span>
+                    <span>🔄 Un redemarrage sera necessaire</span>
                   </div>
                 )}
               </div>
@@ -465,8 +435,7 @@ export default function FixWinPage({ onRequestSupport }: Props) {
                 Annuler
               </button>
               <button className="fw-modal-confirm" onClick={confirmAndRun}>
-                <Play size={16} />
-                Executer
+                ▶️ Executer
               </button>
             </div>
           </div>
