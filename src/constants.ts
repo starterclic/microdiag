@@ -4,7 +4,12 @@
 
 export const SUPABASE_URL = 'https://api.microdiag.cybtek.fr';
 export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzY2OTQ3Nzk5LCJleHAiOjIwODIzMDc3OTl9.WlRjQRwCpfgNaGHqiOzsAgwtxufS59sOIbwSdm2sJyc';
-export const APP_VERSION = '3.12.0';
+export const APP_VERSION = '3.13.0';
+
+// OpenRouter AI Configuration
+export const OPENROUTER_API_KEY = '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';
+export const OPENROUTER_MODEL = 'google/gemini-3-flash-preview';
+export const OPENROUTER_API_URL = 'https://openrouter.ai/v1/chat/completions';
 
 // Messages de vulgarisation par catégorie (rassurants)
 export const LOADER_MESSAGES: Record<string, string[]> = {

@@ -3,11 +3,13 @@
 // Real-time metrics with professional UI
 // ============================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { SystemMetrics, HealthScore, SecurityStatus } from '../types';
 import { DeepHealth } from '../services/godmode';
 import { PremiumDiagnostic, runPremiumDiagnostic, ProcessInfo } from '../services/diagnostics';
+import { AIReport as AIReportType, generateAIReport } from '../services/aiReport';
+import { AIReport } from '../components/AIReport';
 
 interface DashboardPageProps {
   metrics: SystemMetrics | null;
@@ -186,6 +188,10 @@ export function DashboardPage({
   const [loading, setLoading] = useState(true);
   const [processView, setProcessView] = useState<'cpu' | 'memory'>('cpu');
 
+  // AI Report state
+  const [aiReport, setAiReport] = useState<AIReportType | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
   // Load premium diagnostic data
   useEffect(() => {
     const loadDiagnostic = async () => {
@@ -202,6 +208,28 @@ export function DashboardPage({
     const interval = setInterval(loadDiagnostic, 10000); // Refresh every 10s
     return () => clearInterval(interval);
   }, []);
+
+  // Generate AI report on first load when data is available
+  const loadAIReport = useCallback(async () => {
+    if (aiLoading) return;
+    setAiLoading(true);
+    try {
+      const report = await generateAIReport(metrics, health, security || null, deepHealth);
+      setAiReport(report);
+    } catch (error) {
+      console.error('Error generating AI report:', error);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [metrics, health, security, deepHealth, aiLoading]);
+
+  useEffect(() => {
+    // Generate AI report once after initial data load (delay for data availability)
+    if (!loading && metrics && !aiReport && !aiLoading) {
+      const timer = setTimeout(loadAIReport, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, metrics, aiReport, aiLoading, loadAIReport]);
 
   // Calculate health score
   const healthScore = useMemo(() => {
@@ -314,6 +342,13 @@ export function DashboardPage({
           </button>
         </div>
       </div>
+
+      {/* AI Report - Generated on load */}
+      <AIReport
+        report={aiReport}
+        loading={aiLoading}
+        onRefresh={loadAIReport}
+      />
 
       <div className="dashboard-grid">
         {/* Main Health Score */}
