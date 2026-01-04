@@ -48,11 +48,17 @@ export function GodModePage({ metrics }: GodModePageProps) {
           godmode.getInstalledApps(),
           godmode.getStartupItems(),
         ]);
+
+        console.log('🔍 MODE EXPERT - DeepHealth loaded:', health);
+        console.log('📊 SMART Disks count:', health?.smart_disks?.length || 0);
+        console.log('🔋 Battery present:', health?.battery?.is_present);
+        console.log('🔧 Drivers count:', health?.drivers?.length || 0);
+
         setDeepHealth(health);
         setApps(appList);
         setStartupItems(startup);
       } catch (e) {
-        console.error('Error loading God Mode data:', e);
+        console.error('Error loading Mode Expert data:', e);
       } finally {
         setLoading(false);
       }
@@ -357,8 +363,19 @@ export function GodModePage({ metrics }: GodModePageProps) {
               </div>
             )}
 
+            {/* DEBUG INFO */}
+            {deepHealth && (
+              <div style={{ padding: '1rem', background: 'rgba(255, 107, 0, 0.1)', borderRadius: '8px', marginTop: '1rem', fontSize: '0.875rem' }}>
+                <strong>🔍 Debug Info:</strong>
+                <div>SMART Disks: {deepHealth.smart_disks?.length || 0}</div>
+                <div>Battery: {deepHealth.battery?.is_present ? 'Présent' : 'Absent'}</div>
+                <div>Drivers: {deepHealth.drivers?.length || 0}</div>
+                <div>Computer: {deepHealth.computer_name}</div>
+              </div>
+            )}
+
             {/* SMART Disks Details - CrystalDisk Style */}
-            {deepHealth?.smart_disks && deepHealth.smart_disks.length > 0 && (
+            {deepHealth?.smart_disks && deepHealth.smart_disks.length > 0 ? (
               <div className="dashboard-card smart-card" style={{ marginTop: '1rem', background: 'rgba(30, 30, 50, 0.6)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.25rem' }}>
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h3 style={{ fontSize: '0.875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Sante des Disques</h3>
@@ -424,6 +441,14 @@ export function GodModePage({ metrics }: GodModePageProps) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', marginTop: '1rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠️</div>
+                <div style={{ fontWeight: 500 }}>Aucune donnée SMART disponible</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                  Les données SMART nécessitent des droits admin ou ne sont pas supportées par votre disque
                 </div>
               </div>
             )}
