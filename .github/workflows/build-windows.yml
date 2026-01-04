@@ -39,19 +39,29 @@ jobs:
           New-Item -ItemType Directory -Force -Path "tools/CrystalDiskInfo"
           New-Item -ItemType Directory -Force -Path "tools/LibreHardwareMonitor"
 
-          # Download CrystalDiskInfo Portable (MIT License)
+          # Download CrystalDiskInfo Portable (MIT License) - Use OSDN mirror
           Write-Host "Downloading CrystalDiskInfo..."
-          $cdiUrl = "https://github.com/hiyohiyo/CrystalDiskInfo/releases/download/9.4.4/CrystalDiskInfo9_4_4.zip"
-          Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip"
-          Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force
-          Remove-Item "cdi.zip"
+          $cdiUrl = "https://jaist.dl.osdn.jp/crystaldiskinfo/79365/CrystalDiskInfo9_3_2.zip"
+          try {
+            Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip" -UseBasicParsing
+            Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force
+            Remove-Item "cdi.zip"
+            Write-Host "CrystalDiskInfo downloaded successfully"
+          } catch {
+            Write-Host "Warning: Could not download CrystalDiskInfo: $_"
+          }
 
           # Download LibreHardwareMonitor Portable (MPL-2.0 License)
           Write-Host "Downloading LibreHardwareMonitor..."
-          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.4/LibreHardwareMonitor-net472.zip"
-          Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip"
-          Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force
-          Remove-Item "lhm.zip"
+          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.3/LibreHardwareMonitor-net472.zip"
+          try {
+            Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip" -UseBasicParsing
+            Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force
+            Remove-Item "lhm.zip"
+            Write-Host "LibreHardwareMonitor downloaded successfully"
+          } catch {
+            Write-Host "Warning: Could not download LibreHardwareMonitor: $_"
+          }
 
           # Verify downloads
           Write-Host "=== Downloaded Tools ==="
@@ -124,14 +134,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "tools/CrystalDiskInfo"
           New-Item -ItemType Directory -Force -Path "tools/LibreHardwareMonitor"
-          $cdiUrl = "https://github.com/hiyohiyo/CrystalDiskInfo/releases/download/9.4.4/CrystalDiskInfo9_4_4.zip"
-          Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip"
-          Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force
-          Remove-Item "cdi.zip"
-          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.4/LibreHardwareMonitor-net472.zip"
-          Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip"
-          Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force
-          Remove-Item "lhm.zip"
+          $cdiUrl = "https://jaist.dl.osdn.jp/crystaldiskinfo/79365/CrystalDiskInfo9_3_2.zip"
+          try { Invoke-WebRequest -Uri $cdiUrl -OutFile "cdi.zip" -UseBasicParsing; Expand-Archive -Path "cdi.zip" -DestinationPath "tools/CrystalDiskInfo" -Force; Remove-Item "cdi.zip" } catch { Write-Host "CDI download failed" }
+          $lhmUrl = "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.3/LibreHardwareMonitor-net472.zip"
+          try { Invoke-WebRequest -Uri $lhmUrl -OutFile "lhm.zip" -UseBasicParsing; Expand-Archive -Path "lhm.zip" -DestinationPath "tools/LibreHardwareMonitor" -Force; Remove-Item "lhm.zip" } catch { Write-Host "LHM download failed" }
 
       - name: Build Tauri app (signed)
         run: npm run tauri build

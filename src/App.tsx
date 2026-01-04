@@ -9,6 +9,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Toaster, toast } from 'sonner';
 import './styles/index.css';
 import './styles/diagnostic.css';
+import './styles/script-execution.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
@@ -20,7 +21,8 @@ import * as localDb from './services/localDb';
 import * as godmode from './services/godmode';
 
 // Components
-import { Sidebar, ScriptLoaderModal, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
+import { Sidebar, UpdateModal, RemoteExecutionModal, OnboardingTutorial, CommandPalette } from './components';
+import { ScriptExecutionModal, ExecutionPhase, ExecutionStep, parseScriptSteps, updateStepsFromOutput } from './components/ScriptExecutionModal';
 
 // Pages
 import { DashboardPage, ToolsPage, ScanPage, ChatPage, SettingsPage, GodModePage, DiagnosticPage } from './pages';
@@ -51,6 +53,13 @@ function App() {
   const [loaderMessage, setLoaderMessage] = useState<string>('');
   const [loaderProgress, setLoaderProgress] = useState<number>(0);
   const [runningScript, setRunningScript] = useState<Script | null>(null);
+
+  // Script Execution Modal state
+  const [execPhase, setExecPhase] = useState<ExecutionPhase>('confirm');
+  const [execSteps, setExecSteps] = useState<ExecutionStep[]>([]);
+  const [execTerminalOutput, setExecTerminalOutput] = useState<string[]>([]);
+  const [execError, setExecError] = useState<string>('');
+  const [pendingScript, setPendingScript] = useState<Script | null>(null);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -179,46 +188,119 @@ function App() {
   // fetchScripts removed - now using useScripts() hook for Local-First architecture
 
   // ==========================================
-  // SCRIPT EXECUTION
+  // SCRIPT EXECUTION (New Pro UX Flow)
   // ==========================================
+
+  // Step 1: Show confirmation modal
   const runScript = async (script: Script) => {
+    // Initialize execution modal state
+    setPendingScript(script);
+    setExecPhase('confirm');
+    setExecSteps(parseScriptSteps(script.slug));
+    setExecTerminalOutput([]);
+    setExecError('');
+    setLoaderProgress(0);
+    setRunningScript(script);
+  };
+
+  // Step 2: User confirms - execute the script
+  const handleExecConfirm = async () => {
+    if (!pendingScript) return;
+
+    const script = pendingScript;
+    setExecPhase('running');
     setActionRunning(script.slug);
     setActionResult(null);
-    setRunningScript(script);
-    setLoaderProgress(0);
 
-    const messages = LOADER_MESSAGES[script.category] || LOADER_MESSAGES.custom;
-    let messageIndex = 0;
+    // Initialize steps as pending
+    const steps = parseScriptSteps(script.slug);
+    setExecSteps(steps);
+    setExecTerminalOutput([`> Execution de ${script.name}...`, '']);
 
-    const messageInterval = setInterval(() => {
-      setLoaderMessage(messages[messageIndex % messages.length]);
-      setLoaderProgress((prev) => Math.min(prev + 15, 90));
-      messageIndex++;
+    // Simulate step progression during execution
+    let currentStep = 0;
+    const stepInterval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setExecSteps(prev => prev.map((s, i) => ({
+          ...s,
+          status: i < currentStep ? 'done' : i === currentStep ? 'running' : 'pending'
+        })));
+        setLoaderProgress(Math.min(((currentStep + 1) / steps.length) * 90, 90));
+        currentStep++;
+      }
     }, 1500);
 
-    setLoaderMessage(messages[0]);
-
     try {
-      const output = await invoke<string>('run_script', { scriptId: script.slug, code: script.code, language: script.language });
-      clearInterval(messageInterval);
-      setLoaderProgress(100);
-      // Show last meaningful line of output or success message
+      const output = await invoke<string>('run_script', {
+        scriptId: script.slug,
+        code: script.code,
+        language: script.language
+      });
+
+      clearInterval(stepInterval);
+
+      // Parse output and display in terminal
       const lines = output.trim().split('\n').filter(l => l.trim());
-      const lastLine = lines.length > 0 ? lines[lines.length - 1] : 'Termine avec succes !';
-      setLoaderMessage(lastLine.replace(/\[[\w]+\]/g, '').trim() || 'Termine avec succes !');
-      setTimeout(() => {
-        setRunningScript(null);
-        toast.success(lastLine.length > 60 ? `${script.name} terminé !` : lastLine);
-      }, 500);
+      const terminalLines = lines.map(line => {
+        // Format output lines nicely
+        if (line.toLowerCase().includes('succes') || line.toLowerCase().includes('ok') || line.toLowerCase().includes('termine')) {
+          return `[OK] ${line.replace(/\[[\w]+\]/g, '').trim()}`;
+        }
+        if (line.toLowerCase().includes('erreur') || line.toLowerCase().includes('error')) {
+          return `[ERREUR] ${line.replace(/\[[\w]+\]/g, '').trim()}`;
+        }
+        return `> ${line.replace(/\[[\w]+\]/g, '').trim()}`;
+      });
+
+      setExecTerminalOutput(prev => [...prev, ...terminalLines, '', '[OK] Operation terminee avec succes !']);
+
+      // Mark all steps as done
+      setExecSteps(prev => prev.map(s => ({ ...s, status: 'done' as const })));
+      setLoaderProgress(100);
+      setExecPhase('completed');
+
       await invoke('send_notification', { title: 'Microdiag Sentinel', body: `${script.name} termine` });
       fetchData();
+
     } catch (error) {
-      clearInterval(messageInterval);
-      setRunningScript(null);
-      toast.error(`Erreur: ${error}`);
+      clearInterval(stepInterval);
+
+      const errorMsg = String(error);
+      setExecTerminalOutput(prev => [...prev, '', `[ERREUR] ${errorMsg}`]);
+      setExecSteps(prev => prev.map((s, i) => ({
+        ...s,
+        status: s.status === 'running' ? 'error' : s.status === 'done' ? 'done' : 'pending'
+      })));
+      setExecError(errorMsg);
+      setExecPhase('error');
+
     } finally {
       setActionRunning(null);
     }
+  };
+
+  // Cancel execution (from confirm phase)
+  const handleExecCancel = () => {
+    setPendingScript(null);
+    setRunningScript(null);
+    setExecPhase('confirm');
+  };
+
+  // Close modal (from completed/error phase)
+  const handleExecClose = () => {
+    setPendingScript(null);
+    setRunningScript(null);
+    setExecPhase('confirm');
+    if (execPhase === 'completed') {
+      toast.success(`${pendingScript?.name || 'Operation'} termine !`);
+    }
+  };
+
+  // Request support
+  const handleExecRequestSupport = () => {
+    handleExecClose();
+    setShowUrgency(true);
+    setUrgencyType('technique');
   };
 
   const runQuickAction = async (slug: string, name: string) => {
@@ -893,8 +975,21 @@ function App() {
         </div>
       )}
 
-      {/* Script Loader Modal */}
-      {runningScript && <ScriptLoaderModal script={runningScript} message={loaderMessage} progress={loaderProgress} />}
+      {/* Script Execution Modal (Pro UX) */}
+      {runningScript && (
+        <ScriptExecutionModal
+          script={runningScript}
+          phase={execPhase}
+          steps={execSteps}
+          terminalOutput={execTerminalOutput}
+          progress={loaderProgress}
+          error={execError}
+          onConfirm={handleExecConfirm}
+          onCancel={handleExecCancel}
+          onClose={handleExecClose}
+          onRequestSupport={handleExecRequestSupport}
+        />
+      )}
 
       {/* Update Modal */}
       {showUpdateModal && updateAvailable && (

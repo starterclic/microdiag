@@ -1,0 +1,521 @@
+/* ============================================
+   MICRODIAG SENTINEL - Script Execution Modal
+   Pro UX with terminal & confirmations
+   ============================================ */
+
+.script-exec-overlay {
+  backdrop-filter: blur(8px);
+}
+
+.script-exec-modal {
+  background: var(--card-background);
+  border-radius: 1rem;
+  width: 90%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+  animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.exec-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.exec-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.exec-title-section h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.exec-category,
+.exec-status {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.exec-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Explanation Box */
+.exec-explanation {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid #3b82f6;
+  margin: 1rem 1.5rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.explanation-icon {
+  width: 32px;
+  height: 32px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.explanation-content h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.9rem;
+  color: #3b82f6;
+}
+
+.explanation-content p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Risk Warning */
+.exec-risk-warning {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 3px solid;
+  margin: 0 1.5rem 1rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.risk-icon {
+  width: 32px;
+  height: 32px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.risk-content h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.risk-content p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Steps Preview (Confirm Phase) */
+.exec-steps-preview {
+  padding: 0 1.5rem 1rem;
+}
+
+.exec-steps-preview h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.exec-steps-preview ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.exec-steps-preview li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.exec-steps-preview li:last-child {
+  border-bottom: none;
+}
+
+.step-number {
+  width: 24px;
+  height: 24px;
+  background: var(--border-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Execution Steps (Running Phase) */
+.exec-steps {
+  padding: 1rem 1.5rem;
+}
+
+.exec-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.exec-step:last-child {
+  border-bottom: none;
+}
+
+.step-indicator {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.exec-step.pending .step-indicator {
+  background: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.exec-step.running .step-indicator {
+  background: #3b82f6;
+  color: white;
+}
+
+.exec-step.done .step-indicator {
+  background: #10b981;
+  color: white;
+}
+
+.exec-step.error .step-indicator {
+  background: #ef4444;
+  color: white;
+}
+
+.step-indicator .check {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.step-indicator .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.step-info {
+  flex: 1;
+}
+
+.step-label {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.exec-step.done .step-label {
+  color: var(--text-secondary);
+}
+
+.step-output {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}
+
+/* Progress Bar */
+.exec-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1.5rem 1rem;
+}
+
+.progress-bar-container {
+  flex: 1;
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar-fill.error {
+  background: #ef4444;
+}
+
+.progress-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* Terminal */
+.exec-terminal {
+  margin: 0 1.5rem 1rem;
+  background: #1a1a2e;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #2d2d44;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #16162a;
+  border-bottom: 1px solid #2d2d44;
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.terminal-dot.red { background: #ff5f57; }
+.terminal-dot.yellow { background: #febc2e; }
+.terminal-dot.green { background: #28c840; }
+
+.terminal-title {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: #666;
+  font-family: 'SF Mono', monospace;
+}
+
+.terminal-content {
+  padding: 0.75rem;
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.terminal-line {
+  color: #a0a0b0;
+  word-break: break-all;
+}
+
+.terminal-line.success {
+  color: #10b981;
+}
+
+.terminal-line.error {
+  color: #ef4444;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  background: #3b82f6;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Result Message */
+.exec-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  margin: 0 1.5rem 1rem;
+  border-radius: 0.5rem;
+}
+
+.exec-result.success {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.exec-result.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.result-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.exec-result.success .result-icon {
+  background: #10b981;
+  color: white;
+}
+
+.exec-result.error .result-icon {
+  background: #ef4444;
+  color: white;
+}
+
+.result-content h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.95rem;
+}
+
+.exec-result.success .result-content h4 {
+  color: #10b981;
+}
+
+.exec-result.error .result-content h4 {
+  color: #ef4444;
+}
+
+.result-content p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Actions */
+.exec-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  justify-content: flex-end;
+}
+
+.exec-actions .btn-primary,
+.exec-actions .btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.exec-actions .btn-primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+}
+
+.exec-actions .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.exec-actions .btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.exec-actions .btn-secondary:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.running-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  text-align: center;
+  width: 100%;
+}
+
+/* Support Hint */
+.exec-support-hint {
+  text-align: center;
+  padding: 0 1.5rem 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.exec-support-hint .link-btn {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  margin-left: 0.25rem;
+}
+
+.exec-support-hint .link-btn:hover {
+  color: #2563eb;
+}
+
+/* Scrollbar styling for terminal */
+.terminal-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terminal-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-content::-webkit-scrollbar-thumb {
+  background: #3d3d5c;
+  border-radius: 3px;
+}
+
+.terminal-content::-webkit-scrollbar-thumb:hover {
+  background: #4d4d6c;
+}
