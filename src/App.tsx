@@ -14,7 +14,7 @@ import './styles/fixwin.css';
 
 // Types & Constants
 import { SystemMetrics, HealthScore, SecurityStatus, Script, ChatMessage, UpdateInfo, Page, ScanReport, RemoteExecution } from './types';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY_TIPS, STARTUP_STEPS } from './constants';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_VERSION, LOADER_MESSAGES, SECURITY_TIPS, STARTUP_STEPS, OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_API_URL } from './constants';
 
 // Local-First Hooks
 import { useScripts, useOnlineStatus, useRemoteExecutions } from './hooks/useLocalDb';
@@ -470,8 +470,30 @@ function App() {
   };
 
   // ==========================================
-  // CHAT
+  // CHAT - OpenRouter AI
   // ==========================================
+  const buildChatContext = useCallback(() => {
+    const parts: string[] = [];
+    if (metrics) {
+      parts.push(`PC: ${metrics.hostname}`);
+      parts.push(`OS: ${metrics.os_version || 'Windows'}`);
+      parts.push(`CPU: ${metrics.cpu_usage?.toFixed(0) || 0}%`);
+      parts.push(`RAM: ${metrics.memory_percent?.toFixed(0) || 0}%`);
+      if (metrics.disks && metrics.disks.length > 0) {
+        const disk = metrics.disks[0];
+        parts.push(`Disque: ${disk.percent?.toFixed(0)}% utilise, ${disk.free_gb?.toFixed(0)}GB libre`);
+      }
+    }
+    if (health) {
+      parts.push(`Score sante: ${health.score}/100`);
+    }
+    if (security) {
+      parts.push(`Antivirus: ${security.antivirus_enabled ? 'Actif' : 'Inactif'}`);
+      parts.push(`Pare-feu: ${security.firewall_enabled ? 'Actif' : 'Inactif'}`);
+    }
+    return parts.join('. ');
+  }, [metrics, health, security]);
+
   const sendChatMessage = async () => {
     if (!chatInput.trim() || chatLoading) return;
     const userMessage: ChatMessage = { id: Date.now(), role: 'user', content: chatInput, timestamp: new Date() };
@@ -479,22 +501,80 @@ function App() {
     setChatInput('');
     setChatLoading(true);
 
+    const systemPrompt = `Tu es l'assistant Microdiag Sentinel, un expert informatique bienveillant et accessible.
+Tu aides les utilisateurs avec leurs problemes informatiques de maniere simple et rassurante.
+
+CONTEXTE SYSTEME ACTUEL:
+${buildChatContext()}
+
+STYLE:
+- Chaleureux et rassurant, comme un ami qui s'y connait en informatique
+- Vulgarise: pas de jargon technique complexe, explique simplement
+- Positif: meme si des problemes, rassure et propose des solutions pratiques
+- Concis: reponses courtes et utiles, pas de paragraphes interminables
+- Si tu detectes un probleme critique, suggere d'utiliser le bouton SOS pour contacter un expert
+
+CAPACITES:
+- Tu connais l'etat actuel du PC de l'utilisateur (voir contexte ci-dessus)
+- Tu peux suggerer des outils de maintenance (nettoyage, reseau, imprimante, securite)
+- Tu peux expliquer simplement les concepts informatiques
+- Tu peux rassurer sur les problemes courants et guider vers des solutions`;
+
     try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/ai-chat`, {
+      // Build conversation history (last 10 messages for context)
+      const recentMessages = chatMessages.slice(-10).map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }));
+
+      const response = await fetch(OPENROUTER_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-        body: JSON.stringify({ message: userMessage.content, device_id: deviceToken }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://microdiag.cybtek.fr',
+          'X-Title': 'Microdiag Sentinel Chat'
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...recentMessages,
+            { role: 'user', content: userMessage.content }
+          ],
+          temperature: 0.7,
+          max_tokens: 500
+        })
       });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
       const data = await response.json();
+      const assistantContent = data.choices?.[0]?.message?.content || "Desole, je n'ai pas pu generer de reponse.";
+
+      // Check if response suggests an action
+      let action: string | undefined;
+      if (assistantContent.toLowerCase().includes('nettoyage') || assistantContent.toLowerCase().includes('nettoyer')) {
+        action = 'cleanup';
+      } else if (assistantContent.toLowerCase().includes('reseau') && assistantContent.toLowerCase().includes('reinitialiser')) {
+        action = 'fix-network';
+      }
+
       setChatMessages((prev) => [...prev, {
-        id: Date.now() + 1, role: 'assistant',
-        content: data.response || data.error || "Erreur.",
-        timestamp: new Date(), action: data.action,
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: new Date(),
+        action
       }]);
-    } catch {
+    } catch (error) {
+      console.error('[Chat] Error:', error);
       setChatMessages((prev) => [...prev, {
-        id: Date.now() + 1, role: 'assistant',
-        content: "Connexion impossible.",
+        id: Date.now() + 1,
+        role: 'assistant',
+        content: "Desole, je rencontre un probleme de connexion. Reessayez dans quelques instants ou utilisez le bouton SOS si c'est urgent.",
         timestamp: new Date(),
       }]);
     } finally {
@@ -817,6 +897,7 @@ function App() {
             onQuickAction={runQuickAction}
             onGoToTools={handleGoToTools}
             onShowUrgency={handleShowUrgency}
+            onOpenChat={() => setCurrentPage('chat')}
           />
         )}
 

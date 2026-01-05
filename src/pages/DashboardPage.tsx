@@ -21,6 +21,7 @@ interface DashboardPageProps {
   onQuickAction: (slug: string, name: string) => void;
   onGoToTools: () => void;
   onShowUrgency: () => void;
+  onOpenChat?: () => void;
 }
 
 // Circular gauge component
@@ -183,6 +184,7 @@ export function DashboardPage({
   security,
   onRefresh,
   onShowUrgency,
+  onOpenChat,
 }: DashboardPageProps) {
   const [diagnostic, setDiagnostic] = useState<PremiumDiagnostic | null>(null);
   const [loading, setLoading] = useState(true);
@@ -348,6 +350,7 @@ export function DashboardPage({
         report={aiReport}
         loading={aiLoading}
         onRefresh={loadAIReport}
+        onOpenChat={onOpenChat}
       />
 
       <div className="dashboard-grid">

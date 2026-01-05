@@ -14,10 +14,12 @@ export interface AIReportItem {
 }
 
 export interface AIReport {
+  greeting: string;
   title: string;
   summary: string;
   items: AIReportItem[];
   tips: string[];
+  closing: string;
   generatedAt: Date;
 }
 
@@ -79,31 +81,43 @@ export async function generateAIReport(
 ): Promise<AIReport> {
   const context = buildSystemContext(metrics, health, security, deepHealth);
 
-  const systemPrompt = `Tu es l'assistant Microdiag Sentinel, expert en maintenance PC.
-Analyse ce rapport systeme et donne un bilan court et actionnable.
+  const systemPrompt = `Tu es l'assistant Microdiag Sentinel, un expert informatique bienveillant et accessible.
+Tu accueilles l'utilisateur et lui donnes un bilan clair de son PC.
 
-REGLES STRICTES:
-- Reponds UNIQUEMENT en JSON valide
-- Maximum 4 points d'analyse, 2 conseils
-- Sois concis: 1 phrase par point max
-- Utilise un emoji pertinent par ligne
-- Statuts: "ok" (vert), "warning" (orange), "info" (bleu)
-- Vulgarise pour un utilisateur non-technique
-- Ton positif et rassurant
+STYLE:
+- Chaleureux et rassurant, comme un ami qui s'y connait
+- Vulgarise: pas de jargon technique, explique simplement
+- Positif: meme si des problemes, rassure et propose des solutions
+- Personnalise: utilise le nom du PC si disponible
 
-FORMAT JSON:
+CONTENU:
+- greeting: 1-2 phrases d'accueil chaleureuses, mentionne l'heure (matin/apres-midi/soir)
+- title: titre synthetique du bilan
+- summary: 2-3 phrases de synthese globale vulgarisee
+- items: 3-5 points d'analyse avec emoji et explication simple
+- tips: 2-3 conseils pratiques et faciles a suivre
+- closing: invitation a utiliser le chat si besoin d'aide
+
+FORMAT JSON STRICT:
 {
+  "greeting": "Bonjour ! Bienvenue...",
   "title": "Bilan de votre PC",
-  "summary": "Resume en 1 phrase",
+  "summary": "Synthese en 2-3 phrases accessibles...",
   "items": [
-    {"icon": "emoji", "text": "Point d'analyse", "status": "ok|warning|info"}
+    {"icon": "emoji", "text": "Point vulgarise", "status": "ok|warning|info"}
   ],
-  "tips": ["Conseil 1", "Conseil 2"]
+  "tips": ["Conseil simple 1", "Conseil simple 2"],
+  "closing": "Besoin d'aide ? Je suis la..."
 }`;
 
-  const userPrompt = `Contexte systeme: ${context}
+  // Determine time of day for greeting
+  const hour = new Date().getHours();
+  const timeOfDay = hour < 12 ? 'matin' : hour < 18 ? 'apres-midi' : 'soir';
 
-Genere le rapport JSON.`;
+  const userPrompt = `Heure: ${timeOfDay}
+Contexte systeme: ${context}
+
+Genere le rapport JSON accueillant et vulgarise.`;
 
   try {
     const response = await fetch(OPENROUTER_API_URL, {
@@ -120,8 +134,8 @@ Genere le rapport JSON.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.3,
-        max_tokens: 500
+        temperature: 0.5,
+        max_tokens: 800
       })
     });
 
@@ -143,14 +157,16 @@ Genere le rapport JSON.`;
     const parsed = JSON.parse(jsonStr.trim());
 
     return {
+      greeting: parsed.greeting || 'Bonjour ! Bienvenue sur Microdiag Sentinel.',
       title: parsed.title || 'Bilan de votre PC',
-      summary: parsed.summary || 'Analyse terminee',
-      items: (parsed.items || []).slice(0, 4).map((item: AIReportItem) => ({
+      summary: parsed.summary || 'Votre ordinateur fonctionne correctement. Voici les details de l\'analyse.',
+      items: (parsed.items || []).slice(0, 5).map((item: AIReportItem) => ({
         icon: item.icon || '✓',
         text: item.text || '',
         status: item.status || 'info'
       })),
-      tips: (parsed.tips || []).slice(0, 2),
+      tips: (parsed.tips || []).slice(0, 3),
+      closing: parsed.closing || 'Une question ? Utilisez le chat, je suis la pour vous aider !',
       generatedAt: new Date()
     };
 
@@ -184,13 +200,21 @@ Genere le rapport JSON.`;
       });
     }
 
+    const hour = new Date().getHours();
+    const greetingTime = hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon apres-midi' : 'Bonsoir';
+
     return {
+      greeting: `${greetingTime} ! Content de vous voir sur Microdiag Sentinel.`,
       title: 'Bilan de votre PC',
-      summary: 'Analyse basee sur les donnees systeme',
+      summary: 'J\'ai analyse votre ordinateur. Voici ce que j\'ai trouve pour vous.',
       items: items.length > 0 ? items : [
-        { icon: '✓', text: 'Systeme operationnel', status: 'ok' as const }
+        { icon: '✅', text: 'Votre systeme fonctionne normalement', status: 'ok' as const }
       ],
-      tips: ['Gardez votre systeme a jour', 'Effectuez des sauvegardes regulieres'],
+      tips: [
+        'Pensez a redemarrer votre PC de temps en temps',
+        'Gardez Windows et vos logiciels a jour'
+      ],
+      closing: 'Besoin d\'aide ? Je suis disponible via le chat pour repondre a vos questions !',
       generatedAt: new Date()
     };
   }
